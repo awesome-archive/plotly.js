@@ -1,26 +1,22 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
 'use strict';
 
+const { hovertemplateAttrs, texttemplateAttrs, templatefallbackAttrs } = require('../../plots/template_attributes');
+var makeFillcolorAttr = require('../scatter/fillcolor_attribute');
 var scatterAttrs = require('../scatter/attributes');
-var plotAttrs = require('../../plots/attributes');
-var colorAttributes = require('../../components/colorscale/color_attributes');
+var baseAttrs = require('../../plots/attributes');
+var colorScaleAttrs = require('../../components/colorscale/attributes');
+var dash = require('../../components/drawing/attributes').dash;
 
 var extendFlat = require('../../lib/extend').extendFlat;
 
-var scatterMarkerAttrs = scatterAttrs.marker,
-    scatterLineAttrs = scatterAttrs.line,
-    scatterMarkerLineAttrs = scatterMarkerAttrs.line;
+var scatterMarkerAttrs = scatterAttrs.marker;
+var scatterLineAttrs = scatterAttrs.line;
+var scatterMarkerLineAttrs = scatterMarkerAttrs.line;
 
 module.exports = {
     a: {
         valType: 'data_array',
+        editType: 'calc',
         description: [
             'Sets the quantity of component `a` in each data point.',
             'If `a`, `b`, and `c` are all provided, they need not be',
@@ -31,6 +27,7 @@ module.exports = {
     },
     b: {
         valType: 'data_array',
+        editType: 'calc',
         description: [
             'Sets the quantity of component `a` in each data point.',
             'If `a`, `b`, and `c` are all provided, they need not be',
@@ -41,6 +38,7 @@ module.exports = {
     },
     c: {
         valType: 'data_array',
+        editType: 'calc',
         description: [
             'Sets the quantity of component `a` in each data point.',
             'If `a`, `b`, and `c` are all provided, they need not be',
@@ -51,9 +49,9 @@ module.exports = {
     },
     sum: {
         valType: 'number',
-        role: 'info',
         dflt: 0,
         min: 0,
+        editType: 'calc',
         description: [
             'The number each triplet should sum to,',
             'if only two of `a`, `b`, and `c` are provided.',
@@ -62,27 +60,44 @@ module.exports = {
             '0 (or missing) means to use ternary<i>.sum'
         ].join(' ')
     },
-    mode: extendFlat({}, scatterAttrs.mode, {dflt: 'markers'}),
+    mode: extendFlat({}, scatterAttrs.mode, { dflt: 'markers' }),
     text: extendFlat({}, scatterAttrs.text, {
         description: [
             'Sets text elements associated with each (a,b,c) point.',
             'If a single string, the same string appears over',
             'all the data points.',
             'If an array of strings, the items are mapped in order to the',
-            'the data points in (a,b,c).'
+            'the data points in (a,b,c).',
+            'If trace `hoverinfo` contains a *text* flag and *hovertext* is not set,',
+            'these elements will be seen in the hover labels.'
+        ].join(' ')
+    }),
+    texttemplate: texttemplateAttrs({ editType: 'plot' }, { keys: ['a', 'b', 'c', 'text'] }),
+    texttemplatefallback: templatefallbackAttrs({ editType: 'plot' }),
+    hovertext: extendFlat({}, scatterAttrs.hovertext, {
+        description: [
+            'Sets hover text elements associated with each (a,b,c) point.',
+            'If a single string, the same string appears over',
+            'all the data points.',
+            'If an array of strings, the items are mapped in order to the',
+            'the data points in (a,b,c).',
+            'To be seen, trace `hoverinfo` must contain a *text* flag.'
         ].join(' ')
     }),
     line: {
         color: scatterLineAttrs.color,
         width: scatterLineAttrs.width,
-        dash: scatterLineAttrs.dash,
-        shape: extendFlat({}, scatterLineAttrs.shape,
-            {values: ['linear', 'spline']}),
-        smoothing: scatterLineAttrs.smoothing
+        dash: dash,
+        backoff: scatterLineAttrs.backoff,
+        shape: extendFlat({}, scatterLineAttrs.shape, { values: ['linear', 'spline'] }),
+        smoothing: scatterLineAttrs.smoothing,
+        editType: 'calc'
     },
     connectgaps: scatterAttrs.connectgaps,
+    cliponaxis: scatterAttrs.cliponaxis,
     fill: extendFlat({}, scatterAttrs.fill, {
         values: ['none', 'toself', 'tonext'],
+        dflt: 'none',
         description: [
             'Sets the area to fill with a solid color.',
             'Use with `fillcolor` if not *none*.',
@@ -95,30 +110,43 @@ module.exports = {
             'used if one trace does not enclose the other.'
         ].join(' ')
     }),
-    fillcolor: scatterAttrs.fillcolor,
-    marker: extendFlat({}, {
-        symbol: scatterMarkerAttrs.symbol,
-        opacity: scatterMarkerAttrs.opacity,
-        maxdisplayed: scatterMarkerAttrs.maxdisplayed,
-        size: scatterMarkerAttrs.size,
-        sizeref: scatterMarkerAttrs.sizeref,
-        sizemin: scatterMarkerAttrs.sizemin,
-        sizemode: scatterMarkerAttrs.sizemode,
-        showscale: scatterMarkerAttrs.showscale,
-        line: extendFlat({},
-            {width: scatterMarkerLineAttrs.width},
-            colorAttributes('marker'.line)
-        )
-    },
-        colorAttributes('marker')
+    fillcolor: makeFillcolorAttr(),
+    marker: extendFlat(
+        {
+            symbol: scatterMarkerAttrs.symbol,
+            opacity: scatterMarkerAttrs.opacity,
+            angle: scatterMarkerAttrs.angle,
+            angleref: scatterMarkerAttrs.angleref,
+            standoff: scatterMarkerAttrs.standoff,
+            maxdisplayed: scatterMarkerAttrs.maxdisplayed,
+            size: scatterMarkerAttrs.size,
+            sizeref: scatterMarkerAttrs.sizeref,
+            sizemin: scatterMarkerAttrs.sizemin,
+            sizemode: scatterMarkerAttrs.sizemode,
+            line: extendFlat(
+                {
+                    width: scatterMarkerLineAttrs.width,
+                    dash: scatterMarkerLineAttrs.dash,
+                    editType: 'calc'
+                },
+                colorScaleAttrs('marker.line')
+            ),
+            gradient: scatterMarkerAttrs.gradient,
+            editType: 'calc'
+        },
+        colorScaleAttrs('marker')
     ),
+
     textfont: scatterAttrs.textfont,
     textposition: scatterAttrs.textposition,
-    hoverinfo: extendFlat({}, plotAttrs.hoverinfo, {
+
+    selected: scatterAttrs.selected,
+    unselected: scatterAttrs.unselected,
+
+    hoverinfo: extendFlat({}, baseAttrs.hoverinfo, {
         flags: ['a', 'b', 'c', 'text', 'name']
     }),
     hoveron: scatterAttrs.hoveron,
-    _nestedModules: {
-        'marker.colorbar': 'Colorbar'
-    }
+    hovertemplate: hovertemplateAttrs(),
+    hovertemplatefallback: templatefallbackAttrs()
 };

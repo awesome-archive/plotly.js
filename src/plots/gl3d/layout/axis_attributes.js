@@ -1,22 +1,14 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
 'use strict';
 
 var Color = require('../../../components/color');
 var axesAttrs = require('../../cartesian/layout_attributes');
 var extendFlat = require('../../../lib/extend').extendFlat;
+var overrideAll = require('../../../plot_api/edit_types').overrideAll;
 
-
-module.exports = {
+module.exports = overrideAll({
+    visible: axesAttrs.visible,
     showspikes: {
         valType: 'boolean',
-        role: 'info',
         dflt: true,
         description: [
             'Sets whether or not spikes starting from',
@@ -25,7 +17,6 @@ module.exports = {
     },
     spikesides: {
         valType: 'boolean',
-        role: 'info',
         dflt: true,
         description: [
             'Sets whether or not spikes extending from the',
@@ -35,20 +26,17 @@ module.exports = {
     },
     spikethickness: {
         valType: 'number',
-        role: 'style',
         min: 0,
         dflt: 2,
         description: 'Sets the thickness (in px) of the spikes.'
     },
     spikecolor: {
         valType: 'color',
-        role: 'style',
         dflt: Color.defaultLine,
         description: 'Sets the color of the spikes.'
     },
     showbackground: {
         valType: 'boolean',
-        role: 'info',
         dflt: false,
         description: [
             'Sets whether or not this axis\' wall',
@@ -57,28 +45,46 @@ module.exports = {
     },
     backgroundcolor: {
         valType: 'color',
-        role: 'style',
         dflt: 'rgba(204, 204, 204, 0.5)',
         description: 'Sets the background color of this axis\' wall.'
     },
     showaxeslabels: {
         valType: 'boolean',
-        role: 'info',
         dflt: true,
         description: 'Sets whether or not this axis is labeled'
     },
     color: axesAttrs.color,
     categoryorder: axesAttrs.categoryorder,
     categoryarray: axesAttrs.categoryarray,
-    title: axesAttrs.title,
-    titlefont: axesAttrs.titlefont,
-    type: axesAttrs.type,
+    title: {
+        text: axesAttrs.title.text,
+        font: axesAttrs.title.font
+    },
+    type: extendFlat({}, axesAttrs.type, {
+        values: ['-', 'linear', 'log', 'date', 'category']
+    }),
+    autotypenumbers: axesAttrs.autotypenumbers,
     autorange: axesAttrs.autorange,
+    autorangeoptions: {
+        minallowed: axesAttrs.autorangeoptions.minallowed,
+        maxallowed: axesAttrs.autorangeoptions.maxallowed,
+        clipmin: axesAttrs.autorangeoptions.clipmin,
+        clipmax: axesAttrs.autorangeoptions.clipmax,
+        include: axesAttrs.autorangeoptions.include,
+        editType: 'plot'
+    },
     rangemode: axesAttrs.rangemode,
-    range: axesAttrs.range,
-    fixedrange: axesAttrs.fixedrange,
+    minallowed: axesAttrs.minallowed,
+    maxallowed: axesAttrs.maxallowed,
+    range: extendFlat({}, axesAttrs.range, {
+        items: [
+            {valType: 'any', editType: 'plot', impliedEdits: {'^autorange': false}},
+            {valType: 'any', editType: 'plot', impliedEdits: {'^autorange': false}}
+        ],
+        anim: false
+    }),
     // ticks
-    tickmode: axesAttrs.tickmode,
+    tickmode: axesAttrs.minor.tickmode,
     nticks: axesAttrs.nticks,
     tick0: axesAttrs.tick0,
     dtick: axesAttrs.dtick,
@@ -90,6 +96,7 @@ module.exports = {
     tickwidth: axesAttrs.tickwidth,
     tickcolor: axesAttrs.tickcolor,
     showticklabels: axesAttrs.showticklabels,
+    labelalias: axesAttrs.labelalias,
     tickfont: axesAttrs.tickfont,
     tickangle: axesAttrs.tickangle,
     tickprefix: axesAttrs.tickprefix,
@@ -98,7 +105,10 @@ module.exports = {
     showticksuffix: axesAttrs.showticksuffix,
     showexponent: axesAttrs.showexponent,
     exponentformat: axesAttrs.exponentformat,
+    minexponent: axesAttrs.minexponent,
+    separatethousands: axesAttrs.separatethousands,
     tickformat: axesAttrs.tickformat,
+    tickformatstops: axesAttrs.tickformatstops,
     hoverformat: axesAttrs.hoverformat,
     // lines and grids
     showline: axesAttrs.showline,
@@ -110,5 +120,5 @@ module.exports = {
     gridwidth: axesAttrs.gridwidth,
     zeroline: axesAttrs.zeroline,
     zerolinecolor: axesAttrs.zerolinecolor,
-    zerolinewidth: axesAttrs.zerolinewidth
-};
+    zerolinewidth: axesAttrs.zerolinewidth,
+}, 'plot', 'from-root');

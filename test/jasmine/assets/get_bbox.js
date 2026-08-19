@@ -1,6 +1,6 @@
 'use strict';
 
-var d3 = require('d3');
+var d3Select = require('../../strict-d3').select;
 
 var ATTRS = ['x', 'y', 'width', 'height'];
 
@@ -9,29 +9,28 @@ var ATTRS = ['x', 'y', 'width', 'height'];
 module.exports = function getBBox(element) {
     var elementBBox = element.getBBox();
 
-    var s = d3.select(element);
+    var s = d3Select(element);
     var clipPathAttr = s.attr('clip-path');
 
     if(!clipPathAttr) return elementBBox;
 
     // only supports 'url(#<id>)' at the moment
-    var clipPathId = clipPathAttr.substring(5, clipPathAttr.length - 1);
+    var clipPathId = clipPathAttr.slice(5, clipPathAttr.length - 1);
     var clipBBox = getClipBBox(clipPathId);
 
     return minBBox(elementBBox, clipBBox);
 };
 
 function getClipBBox(clipPathId) {
-    var clipPath = d3.select('#' + clipPathId);
+    var clipPath = d3Select('#' + clipPathId);
     var clipBBox;
 
     try {
         // this line throws an error in FF (38 and 45 at least)
         clipBBox = clipPath.node().getBBox();
-    }
-    catch(e) {
+    } catch(e) {
         // use DOM attributes as fallback
-        var path = d3.select(clipPath.node().firstChild);
+        var path = d3Select(clipPath.node().firstChild);
 
         clipBBox = {};
 

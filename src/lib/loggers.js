@@ -1,14 +1,10 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
 'use strict';
 
-var config = require('../plot_api/plot_config');
+/* eslint-disable no-console */
+
+var dfltConfig = require('../plot_api/plot_config').dfltConfig;
+
+var notifier = require('./notifier');
 
 var loggers = module.exports = {};
 
@@ -18,48 +14,62 @@ var loggers = module.exports = {};
  * ------------------------------------------
  */
 
-/* eslint-disable no-console */
 loggers.log = function() {
-    if(config.logging > 1) {
-        var messages = ['LOG:'];
+    var i;
 
-        for(var i = 0; i < arguments.length; i++) {
+    if(dfltConfig.logging > 1) {
+        var messages = ['LOG:'];
+        for(i = 0; i < arguments.length; i++) {
             messages.push(arguments[i]);
         }
+        console.trace.apply(console, messages);
+    }
 
-        if(console.trace) {
-            console.trace.apply(console, messages);
-        } else {
-            console.log.apply(console, messages);
+    if(dfltConfig.notifyOnLogging > 1) {
+        var lines = [];
+        for(i = 0; i < arguments.length; i++) {
+            lines.push(arguments[i]);
         }
+        notifier(lines.join('<br>'), 'long');
     }
 };
 
 loggers.warn = function() {
-    if(config.logging > 0) {
-        var messages = ['WARN:'];
+    var i;
 
-        for(var i = 0; i < arguments.length; i++) {
+    if(dfltConfig.logging > 0) {
+        var messages = ['WARN:'];
+        for(i = 0; i < arguments.length; i++) {
             messages.push(arguments[i]);
         }
+        console.trace.apply(console, messages);
+    }
 
-        if(console.trace) {
-            console.trace.apply(console, messages);
-        } else {
-            console.log.apply(console, messages);
+    if(dfltConfig.notifyOnLogging > 0) {
+        var lines = [];
+        for(i = 0; i < arguments.length; i++) {
+            lines.push(arguments[i]);
         }
+        notifier(lines.join('<br>'), 'stick');
     }
 };
 
 loggers.error = function() {
-    if(config.logging > 0) {
-        var messages = ['ERROR:'];
+    var i;
 
-        for(var i = 0; i < arguments.length; i++) {
+    if(dfltConfig.logging > 0) {
+        var messages = ['ERROR:'];
+        for(i = 0; i < arguments.length; i++) {
             messages.push(arguments[i]);
         }
+        console.error.apply(console, messages);
+    }
 
-        console.error.apply(console, arguments);
+    if(dfltConfig.notifyOnLogging > 0) {
+        var lines = [];
+        for(i = 0; i < arguments.length; i++) {
+            lines.push(arguments[i]);
+        }
+        notifier(lines.join('<br>'), 'stick');
     }
 };
-/* eslint-enable no-console */

@@ -1,11 +1,3 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
 'use strict';
 
 
@@ -28,6 +20,8 @@ exports.defaultLine = '#444';
 exports.lightLine = '#eee';
 
 exports.background = '#fff';
+
+exports.borderLine = '#BEC8D9';
 
 // with axis.color and Color.interp we aren't using lightLine
 // itself anymore, instead interpolating between axis.color

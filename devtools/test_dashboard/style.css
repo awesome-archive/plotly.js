@@ -33,6 +33,11 @@ header span{
   font-size: 10px;
   line-height: 40px;
 }
+#strict-div{
+  color: #F00;
+  font-weight: 600;
+  display: inline-block;
+}
 #mocks-list{
   position: fixed;
   right: 0px;
@@ -55,6 +60,9 @@ header span{
 .search-result:hover{
   color: #fff;
   background-color: #4983EC;
+}
+.search-result__selected{
+  background-color: #DDDDEE;
 }
 #plots{
   overflow: scroll;

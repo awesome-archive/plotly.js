@@ -1,281 +1,343 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
 'use strict';
 
 var isNumeric = require('fast-isnumeric');
-var colorMix = require('tinycolor2').mix;
 
+var Registry = require('../../registry');
 var Lib = require('../../lib');
-var Plots = require('../plots');
-var lightFraction = require('../../components/color/attributes').lightFraction;
+var Template = require('../../plot_api/plot_template');
+
+var handleArrayContainerDefaults = require('../array_container_defaults');
 
 var layoutAttributes = require('./layout_attributes');
 var handleTickValueDefaults = require('./tick_value_defaults');
 var handleTickMarkDefaults = require('./tick_mark_defaults');
 var handleTickLabelDefaults = require('./tick_label_defaults');
+var handlePrefixSuffixDefaults = require('./prefix_suffix_defaults');
 var handleCategoryOrderDefaults = require('./category_order_defaults');
+var handleLineGridDefaults = require('./line_grid_defaults');
+var handleRangeDefaults = require('./range_defaults');
 var setConvert = require('./set_convert');
-var orderedCategories = require('./ordered_categories');
-var cleanDatum = require('./clean_datum');
-var axisIds = require('./axis_ids');
 
+var DAY_OF_WEEK = require('./constants').WEEKDAY_PATTERN;
+var HOUR = require('./constants').HOUR_PATTERN;
 
 /**
  * options: object containing:
  *
  *  letter: 'x' or 'y'
  *  title: name of the axis (ie 'Colorbar') to go in default title
- *  name: axis object name (ie 'xaxis') if one should be stored
  *  font: the default font to inherit
  *  outerTicks: boolean, should ticks default to outside?
  *  showGrid: boolean, should gridlines be shown by default?
  *  noHover: boolean, this axis doesn't support hover effects?
- *  data: the plot data to use in choosing auto type
+ *  noTickson: boolean, this axis doesn't support 'tickson'
+ *  data: the plot data, used to manage categories
  *  bgColor: the plot background color, to calculate default gridline colors
+ *  calendar:
+ *  splomStash:
+ *  visibleDflt: boolean
+ *  reverseDflt: boolean
+ *  automargin: boolean
  */
-module.exports = function handleAxisDefaults(containerIn, containerOut, coerce, options) {
-    var letter = options.letter,
-        font = options.font || {},
-        defaultTitle = 'Click to enter ' +
-            (options.title || (letter.toUpperCase() + ' axis')) +
-            ' title';
+module.exports = function handleAxisDefaults(containerIn, containerOut, coerce, options, layoutOut) {
+    var letter = options.letter;
+    var font = options.font || {};
+    var splomStash = options.splomStash || {};
 
-    function coerce2(attr, dflt) {
-        return Lib.coerce2(containerIn, containerOut, layoutAttributes, attr, dflt);
-    }
+    var visible = coerce('visible', !options.visibleDflt);
 
-    // set up some private properties
-    if(options.name) {
-        containerOut._name = options.name;
-        containerOut._id = axisIds.name2id(options.name);
-    }
+    var axTemplate = containerOut._template || {};
+    var axType = containerOut.type || axTemplate.type || '-';
 
-    // now figure out type and do some more initialization
-    var axType = coerce('type');
-    if(axType === '-') {
-        setAutoType(containerOut, options.data);
+    var ticklabelmode;
+    if(axType === 'date') {
+        var handleCalendarDefaults = Registry.getComponentMethod('calendars', 'handleDefaults');
+        handleCalendarDefaults(containerIn, containerOut, 'calendar', options.calendar);
 
-        if(containerOut.type === '-') {
-            containerOut.type = 'linear';
-        }
-        else {
-            // copy autoType back to input axis
-            // note that if this object didn't exist
-            // in the input layout, we have to put it in
-            // this happens in the main supplyDefaults function
-            axType = containerIn.type = containerOut.type;
+        if(!options.noTicklabelmode) {
+            ticklabelmode = coerce('ticklabelmode');
         }
     }
 
-    setConvert(containerOut);
+    if(!options.noTicklabelindex && (axType === 'date' || axType === 'linear')) {
+        coerce('ticklabelindex');
+    }
+
+    var ticklabelposition = '';
+    if(!options.noTicklabelposition || axType === 'multicategory') {
+        ticklabelposition = Lib.coerce(containerIn, containerOut, {
+            ticklabelposition: {
+                valType: 'enumerated',
+                dflt: 'outside',
+                values: ticklabelmode === 'period' ? ['outside', 'inside'] :
+                letter === 'x' ? [
+                    'outside', 'inside',
+                    'outside left', 'inside left',
+                    'outside right', 'inside right'
+                ] : [
+                    'outside', 'inside',
+                    'outside top', 'inside top',
+                    'outside bottom', 'inside bottom'
+                ]
+            }
+        }, 'ticklabelposition');
+    }
+
+    if(!options.noTicklabeloverflow) {
+        coerce('ticklabeloverflow',
+            ticklabelposition.indexOf('inside') !== -1 ?
+                'hide past domain' :
+            axType === 'category' ||
+            axType === 'multicategory' ?
+                'allow' :
+                'hide past div'
+        );
+    }
+
+    setConvert(containerOut, layoutOut);
+
+    handleRangeDefaults(containerIn, containerOut, coerce, options);
+
+    handleCategoryOrderDefaults(containerIn, containerOut, coerce, options);
+
+    if(!options.noHover) {
+        if(axType !== 'category') coerce('hoverformat');
+        if(!options.noUnifiedhovertitle) {
+            coerce('unifiedhovertitle.text');
+        }
+    }
 
     var dfltColor = coerce('color');
     // if axis.color was provided, use it for fonts too; otherwise,
     // inherit from global font color in case that was provided.
-    var dfltFontColor = (dfltColor === containerIn.color) ? dfltColor : font.color;
+    // Compare to dflt rather than to containerIn, so we can provide color via
+    // template too.
+    var dfltFontColor = (dfltColor !== layoutAttributes.color.dflt) ? dfltColor : font.color;
+    // try to get default title from splom trace, fallback to graph-wide value
+    var dfltTitle = splomStash.label || layoutOut._dfltTitle[letter];
 
-    coerce('title', defaultTitle);
-    Lib.coerceFont(coerce, 'titlefont', {
-        family: font.family,
-        size: Math.round(font.size * 1.2),
+    handlePrefixSuffixDefaults(containerIn, containerOut, coerce, axType, options);
+    if(!visible) return containerOut;
+
+    coerce('title.text', dfltTitle);
+    Lib.coerceFont(coerce, 'title.font', font, { overrideDflt: {
+        size: Lib.bigFont(font.size),
         color: dfltFontColor
+    }});
+
+    // major ticks
+    handleTickValueDefaults(containerIn, containerOut, coerce, axType);
+
+    var hasMinor = options.hasMinor;
+    if(hasMinor) {
+        // minor ticks
+        Template.newContainer(containerOut, 'minor');
+        handleTickValueDefaults(containerIn, containerOut, coerce, axType, { isMinor: true });
+    }
+
+    handleTickLabelDefaults(containerIn, containerOut, coerce, axType, options);
+
+    // major and minor ticks
+    handleTickMarkDefaults(containerIn, containerOut, coerce, options);
+    if(hasMinor) {
+        var keepIsMinor = options.isMinor;
+        options.isMinor = true;
+        handleTickMarkDefaults(containerIn, containerOut, coerce, options);
+        options.isMinor = keepIsMinor;
+    }
+
+    handleLineGridDefaults(containerIn, containerOut, coerce, {
+        dfltColor: dfltColor,
+        bgColor: options.bgColor,
+        showGrid: options.showGrid,
+        hasMinor: hasMinor,
+        attributes: layoutAttributes
     });
 
-    var validRange = (
-        (containerIn.range || []).length === 2 &&
-        isNumeric(containerIn.range[0]) &&
-        isNumeric(containerIn.range[1])
-    );
-    var autoRange = coerce('autorange', !validRange);
-
-    if(autoRange) coerce('rangemode');
-    var range = coerce('range', [-1, letter === 'x' ? 6 : 4]);
-    if(range[0] === range[1]) {
-        containerOut.range = [range[0] - 1, range[0] + 1];
-    }
-    Lib.noneOrAll(containerIn.range, containerOut.range, [0, 1]);
-
-    coerce('fixedrange');
-
-    handleTickValueDefaults(containerIn, containerOut, coerce, axType);
-    handleTickLabelDefaults(containerIn, containerOut, coerce, axType, options);
-    handleTickMarkDefaults(containerIn, containerOut, coerce, options);
-    handleCategoryOrderDefaults(containerIn, containerOut, coerce);
-
-    var lineColor = coerce2('linecolor', dfltColor),
-        lineWidth = coerce2('linewidth'),
-        showLine = coerce('showline', !!lineColor || !!lineWidth);
-
-    if(!showLine) {
-        delete containerOut.linecolor;
-        delete containerOut.linewidth;
+    // delete minor when no minor ticks or gridlines and no hidden minor ticks are needed
+    if(
+        hasMinor &&
+        containerOut.ticklabelindex == null &&
+        !containerOut.minor.ticks &&
+        !containerOut.minor.showgrid
+    ) {
+        delete containerOut.minor;
     }
 
-    if(showLine || containerOut.ticks) coerce('mirror');
+    // mirror
+    if(containerOut.showline || containerOut.ticks) coerce('mirror');
 
-    var gridColor = coerce2('gridcolor', colorMix(dfltColor, options.bgColor, lightFraction).toRgbString()),
-        gridWidth = coerce2('gridwidth'),
-        showGridLines = coerce('showgrid', options.showGrid || !!gridColor || !!gridWidth);
+    var isMultiCategory = axType === 'multicategory';
 
-    if(!showGridLines) {
-        delete containerOut.gridcolor;
-        delete containerOut.gridwidth;
+    if(!options.noTickson &&
+        (axType === 'category' || isMultiCategory) &&
+        (containerOut.ticks || containerOut.showgrid)
+    ) {
+        if (isMultiCategory) {
+            coerce('tickson', 'boundaries');
+            delete containerOut.ticklabelposition;
+        } else { // category axis
+            coerce('tickson');
+        }
     }
 
-    var zeroLineColor = coerce2('zerolinecolor', dfltColor),
-        zeroLineWidth = coerce2('zerolinewidth'),
-        showZeroLine = coerce('zeroline', options.showGrid || !!zeroLineColor || !!zeroLineWidth);
-
-    if(!showZeroLine) {
-        delete containerOut.zerolinecolor;
-        delete containerOut.zerolinewidth;
+    if(isMultiCategory) {
+        var showDividers = coerce('showdividers');
+        if(showDividers) {
+            coerce('dividercolor');
+            coerce('dividerwidth');
+        }
     }
 
-    // fill in categories
-    containerOut._initialCategories = axType === 'category' ?
-        orderedCategories(letter, containerOut.categoryorder, containerOut.categoryarray, options.data) :
-        [];
+    if(axType === 'date') {
+        handleArrayContainerDefaults(containerIn, containerOut, {
+            name: 'rangebreaks',
+            inclusionAttr: 'enabled',
+            handleItemDefaults: rangebreaksDefaults
+        });
+
+        if(!containerOut.rangebreaks.length) {
+            delete containerOut.rangebreaks;
+        } else {
+            for(var k = 0; k < containerOut.rangebreaks.length; k++) {
+                if(containerOut.rangebreaks[k].pattern === DAY_OF_WEEK) {
+                    containerOut._hasDayOfWeekBreaks = true;
+                    break;
+                }
+            }
+
+            setConvert(containerOut, layoutOut);
+
+            if(layoutOut._has('scattergl') || layoutOut._has('splom')) {
+                for(var i = 0; i < options.data.length; i++) {
+                    var trace = options.data[i];
+                    if(trace.type === 'scattergl' || trace.type === 'splom') {
+                        trace.visible = false;
+                        Lib.warn(trace.type +
+                            ' traces do not work on axes with rangebreaks.' +
+                            ' Setting trace ' + trace.index + ' to `visible: false`.');
+                    }
+                }
+            }
+        }
+    }
 
     return containerOut;
 };
 
-function setAutoType(ax, data) {
-    // new logic: let people specify any type they want,
-    // only autotype if type is '-'
-    if(ax.type !== '-') return;
-
-    var id = ax._id,
-        axLetter = id.charAt(0);
-
-    // support 3d
-    if(id.indexOf('scene') !== -1) id = axLetter;
-
-    var d0 = getFirstNonEmptyTrace(data, id, axLetter);
-    if(!d0) return;
-
-    // first check for histograms, as the count direction
-    // should always default to a linear axis
-    if(d0.type === 'histogram' &&
-            axLetter === {v: 'y', h: 'x'}[d0.orientation || 'v']) {
-        ax.type = 'linear';
-        return;
+function rangebreaksDefaults(itemIn, itemOut, containerOut) {
+    function coerce(attr, dflt) {
+        return Lib.coerce(itemIn, itemOut, layoutAttributes.rangebreaks, attr, dflt);
     }
 
-    // check all boxes on this x axis to see
-    // if they're dates, numbers, or categories
-    if(isBoxWithoutPositionCoords(d0, axLetter)) {
-        var posLetter = getBoxPosLetter(d0),
-            boxPositions = [],
-            trace;
+    var enabled = coerce('enabled');
 
-        for(var i = 0; i < data.length; i++) {
-            trace = data[i];
-            if(!Plots.traceIs(trace, 'box') ||
-               (trace[axLetter + 'axis'] || axLetter) !== id) continue;
-
-            if(trace[posLetter] !== undefined) boxPositions.push(trace[posLetter][0]);
-            else if(trace.name !== undefined) boxPositions.push(trace.name);
-            else boxPositions.push('text');
-        }
-
-        ax.type = autoType(boxPositions);
-    }
-    else {
-        ax.type = autoType(d0[axLetter] || [d0[axLetter + '0']]);
-    }
-}
-
-function getBoxPosLetter(trace) {
-    return {v: 'x', h: 'y'}[trace.orientation || 'v'];
-}
-
-function isBoxWithoutPositionCoords(trace, axLetter) {
-    var posLetter = getBoxPosLetter(trace);
-
-    return (
-        Plots.traceIs(trace, 'box') &&
-        axLetter === posLetter &&
-        trace[posLetter] === undefined &&
-        trace[posLetter + '0'] === undefined
-    );
-}
-
-function autoType(array) {
-    if(moreDates(array)) return 'date';
-    if(category(array)) return 'category';
-    if(linearOK(array)) return 'linear';
-    else return '-';
-}
-
-function getFirstNonEmptyTrace(data, id, axLetter) {
-    for(var i = 0; i < data.length; i++) {
-        var trace = data[i];
-
-        if((trace[axLetter + 'axis'] || axLetter) === id) {
-            if(isBoxWithoutPositionCoords(trace, axLetter)) {
-                return trace;
+    if(enabled) {
+        var bnds = coerce('bounds');
+        if(bnds && bnds.length >= 2) {
+            var dfltPattern = '';
+            var i, q;
+            if(bnds.length === 2) {
+                for(i = 0; i < 2; i++) {
+                    q = indexOfDay(bnds[i]);
+                    if(q) {
+                        dfltPattern = DAY_OF_WEEK;
+                        break;
+                    }
+                }
             }
-            else if((trace[axLetter] || []).length || trace[axLetter + '0']) {
-                return trace;
+            var pattern = coerce('pattern', dfltPattern);
+            if(pattern === DAY_OF_WEEK) {
+                for(i = 0; i < 2; i++) {
+                    q = indexOfDay(bnds[i]);
+                    if(q) {
+                        // convert to integers i.e 'Sunday' --> 0
+                        itemOut.bounds[i] = bnds[i] = q - 1;
+                    }
+                }
+            }
+            if(pattern) {
+                // ensure types and ranges
+                for(i = 0; i < 2; i++) {
+                    q = bnds[i];
+                    switch(pattern) {
+                        case DAY_OF_WEEK :
+                            if(!isNumeric(q)) {
+                                itemOut.enabled = false;
+                                return;
+                            }
+                            q = +q;
+
+                            if(
+                                q !== Math.floor(q) || // don't accept fractional days for mow
+                                q < 0 || q >= 7
+                            ) {
+                                itemOut.enabled = false;
+                                return;
+                            }
+                            // use number
+                            itemOut.bounds[i] = bnds[i] = q;
+                            break;
+
+                        case HOUR :
+                            if(!isNumeric(q)) {
+                                itemOut.enabled = false;
+                                return;
+                            }
+                            q = +q;
+
+                            if(q < 0 || q > 24) { // accept 24
+                                itemOut.enabled = false;
+                                return;
+                            }
+                            // use number
+                            itemOut.bounds[i] = bnds[i] = q;
+                            break;
+                    }
+                }
+            }
+
+            if(containerOut.autorange === false) {
+                var rng = containerOut.range;
+
+                // if bounds are bigger than the (set) range, disable break
+                if(rng[0] < rng[1]) {
+                    if(bnds[0] < rng[0] && bnds[1] > rng[1]) {
+                        itemOut.enabled = false;
+                        return;
+                    }
+                } else if(bnds[0] > rng[0] && bnds[1] < rng[1]) {
+                    itemOut.enabled = false;
+                    return;
+                }
+            }
+        } else {
+            var values = coerce('values');
+
+            if(values && values.length) {
+                coerce('dvalue');
+            } else {
+                itemOut.enabled = false;
+                return;
             }
         }
     }
 }
 
-// is there at least one number in array? If not, we should leave
-// ax.type empty so it can be autoset later
-function linearOK(array) {
-    if(!array) return false;
+// these numbers are one more than what bounds would be mapped to
+var dayStrToNum = {
+    sun: 1,
+    mon: 2,
+    tue: 3,
+    wed: 4,
+    thu: 5,
+    fri: 6,
+    sat: 7
+};
 
-    for(var i = 0; i < array.length; i++) {
-        if(isNumeric(array[i])) return true;
-    }
-
-    return false;
-}
-
-// does the array a have mostly dates rather than numbers?
-// note: some values can be neither (such as blanks, text)
-// 2- or 4-digit integers can be both, so require twice as many
-// dates as non-dates, to exclude cases with mostly 2 & 4 digit
-// numbers and a few dates
-function moreDates(a) {
-    var dcnt = 0,
-        ncnt = 0,
-        // test at most 1000 points, evenly spaced
-        inc = Math.max(1, (a.length - 1) / 1000),
-        ai;
-
-    for(var i = 0; i < a.length; i += inc) {
-        ai = a[Math.round(i)];
-        if(Lib.isDateTime(ai)) dcnt += 1;
-        if(isNumeric(ai)) ncnt += 1;
-    }
-
-    return (dcnt > ncnt * 2);
-}
-
-// are the (x,y)-values in td.data mostly text?
-// require twice as many categories as numbers
-function category(a) {
-    // test at most 1000 points
-    var inc = Math.max(1, (a.length - 1) / 1000),
-        curvenums = 0,
-        curvecats = 0,
-        ai;
-
-    for(var i = 0; i < a.length; i += inc) {
-        ai = cleanDatum(a[Math.round(i)]);
-        if(isNumeric(ai)) curvenums++;
-        else if(typeof ai === 'string' && ai !== '' && ai !== 'None') curvecats++;
-    }
-
-    return curvecats > curvenums * 2;
+function indexOfDay(v) {
+    if(typeof v !== 'string') return;
+    return dayStrToNum[
+        v.slice(0, 3).toLowerCase()
+    ];
 }

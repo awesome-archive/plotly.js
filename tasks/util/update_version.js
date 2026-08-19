@@ -7,11 +7,11 @@ var pkg = require('../../package.json');
 
 module.exports = function updateVersion(pathToFile) {
     fs.readFile(pathToFile, 'utf-8', function(err, code) {
-        var out = falafel(code, function(node) {
+        var out = falafel(code, { ecmaVersion: 'latest' }, function(node) {
             if(isVersionNode(node)) node.update('\'' + pkg.version + '\'');
         });
 
-        fs.writeFile(pathToFile, out, function(err) {
+        fs.writeFile(pathToFile, out.toString(), function(err) {
             if(err) throw err;
         });
     });

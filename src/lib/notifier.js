@@ -1,28 +1,20 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
 'use strict';
 
-var d3 = require('d3');
+var d3 = require('@plotly/d3');
 var isNumeric = require('fast-isnumeric');
 
 var NOTEDATA = [];
 
 /**
  * notifier
- * @param {object} gd figure Object
- * @param {String} text The person's user name
- * @param {Number} [delay=1000] The delay time in milliseconds
- *          or 'long' which provides 2000 ms delay time.
+ * @param {string} text - The message to display in the notification
+ * @param {number|'long'|'stick'} [displayLength=1000] - Display duration in ms,
+ *     'long' for 3000ms, or 'stick' to keep until manually closed
+ * @param {object} [gd] - Plot div; if provided and gd._context.displayNotifier === false, notification is suppressed
  * @return {undefined} this function does not return a value
  */
-module.exports = function(gd, text, displayLength) {
+module.exports = function(text, displayLength, gd) {
+    if(gd?._context?.displayNotifier === false) return;
     if(NOTEDATA.indexOf(text) !== -1) return;
 
     NOTEDATA.push(text);
@@ -31,7 +23,7 @@ module.exports = function(gd, text, displayLength) {
     if(isNumeric(displayLength)) ts = displayLength;
     else if(displayLength === 'long') ts = 3000;
 
-    var notifierContainer = d3.select(gd._document.body)
+    var notifierContainer = d3.select('body')
         .selectAll('.plotly-notifier')
         .data([0]);
     notifierContainer.enter()
@@ -64,13 +56,24 @@ module.exports = function(gd, text, displayLength) {
                     note.transition().call(killNote);
                 });
 
-            note.append('p').html(thisText);
+            var p = note.append('p');
+            var lines = thisText.split(/<br\s*\/?>/g);
+            for(var i = 0; i < lines.length; i++) {
+                if(i) p.append('br');
+                p.append('span').text(lines[i]);
+            }
 
-            note.transition()
+            if(displayLength === 'stick') {
+                note.transition()
+                    .duration(350)
+                    .style('opacity', 1);
+            } else {
+                note.transition()
                     .duration(700)
                     .style('opacity', 1)
-                .transition()
+                    .transition()
                     .delay(ts)
                     .call(killNote);
+            }
         });
 };

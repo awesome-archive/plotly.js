@@ -1,20 +1,12 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-/*eslint block-scoped-var: 0*/
-/*eslint no-redeclare: 0*/
+/* eslint block-scoped-var: 0*/
+/* eslint no-redeclare: 0*/
 
 'use strict';
 
 module.exports = computeTickMarks;
 
-var Plotly = require('../../../plotly');
-var convertHTML = require('../../../lib/html2unicode');
+var Axes = require('../../cartesian/axes');
+var Lib = require('../../../lib');
 
 var AXES_NAMES = ['xaxis', 'yaxis', 'zaxis'];
 
@@ -46,9 +38,11 @@ function computeTickMarks(scene) {
         axes._length = (glRange[i].hi - glRange[i].lo) *
             glRange[i].pixelsPerDataUnit / scene.dataScale[i];
 
-        if(Math.abs(axes._length) === Infinity) {
+        if(Math.abs(axes._length) === Infinity ||
+           isNaN(axes._length)) {
             ticks[i] = [];
         } else {
+            axes._input_range = axes.range.slice();
             axes.range[0] = (glRange[i].lo) / scene.dataScale[i];
             axes.range[1] = (glRange[i].hi) / scene.dataScale[i];
             axes._m = 1.0 / (scene.dataScale[i] * glRange[i].pixelsPerDataUnit);
@@ -58,19 +52,23 @@ function computeTickMarks(scene) {
                 axes.range[1] += 1;
             }
             // this is necessary to short-circuit the 'y' handling
-            // in autotick part of calcTicks... Treating all axes as 'y' in this case
-            // running the autoticks here, then setting
-            // autoticks to false to get around the 2D handling in calcTicks.
+            // in tickmode part of calcTicks... Treating all axes as 'y' in this case
+            // running the tickmode here, then setting
+            // automode to linear to get around the 2D handling in calcTicks.
             var tickModeCached = axes.tickmode;
             if(axes.tickmode === 'auto') {
                 axes.tickmode = 'linear';
-                var nticks = axes.nticks || Plotly.Lib.constrain((axes._length / 40), 4, 9);
-                Plotly.Axes.autoTicks(axes, Math.abs(axes.range[1] - axes.range[0]) / nticks);
+                var nticks = axes.nticks || Lib.constrain((axes._length / 40), 4, 9);
+                Axes.autoTicks(axes, Math.abs(axes.range[1] - axes.range[0]) / nticks);
             }
-            var dataTicks = Plotly.Axes.calcTicks(axes);
+            var dataTicks = Axes.calcTicks(axes, { msUTC: true });
             for(var j = 0; j < dataTicks.length; ++j) {
                 dataTicks[j].x = dataTicks[j].x * scene.dataScale[i];
-                dataTicks[j].text = convertHTML(dataTicks[j].text);
+
+                if(axes.type === 'date') {
+                    dataTicks[j].text =
+                    dataTicks[j].text.replace(/\<br\>/g, ' ');
+                }
             }
             ticks[i] = dataTicks;
 
@@ -81,7 +79,7 @@ function computeTickMarks(scene) {
 
     axesOptions.ticks = ticks;
 
-    //Calculate tick lengths dynamically
+    // Calculate tick lengths dynamically
     for(var i = 0; i < 3; ++i) {
         centerPoint[i] = 0.5 * (scene.glplot.bounds[0][i] + scene.glplot.bounds[1][i]);
         for(var j = 0; j < 2; ++j) {

@@ -1,22 +1,10 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
 'use strict';
-
-/* global jQuery:false */
 
 var EventEmitter = require('events').EventEmitter;
 
 var Events = {
 
     init: function(plotObj) {
-
         /*
          * If we have already instantiated an emitter for this plot
          * return early.
@@ -24,6 +12,7 @@ var Events = {
         if(plotObj._ev instanceof EventEmitter) return plotObj;
 
         var ev = new EventEmitter();
+        var internalEv = new EventEmitter();
 
         /*
          * Assign to plot._ev while we still live in a land
@@ -31,6 +20,16 @@ var Events = {
          * In the future we can make plot the event emitter itself.
          */
         plotObj._ev = ev;
+
+        /*
+         * Create a second event handler that will manage events *internally*.
+         * This allows parts of plotly to respond to thing like relayout without
+         * having to use the user-facing event handler. They cannot peacefully
+         * coexist on the same handler because a user invoking
+         * plotObj.removeAllListeners() would detach internal events, breaking
+         * plotly.
+         */
+        plotObj._internalEv = internalEv;
 
         /*
          * Assign bound methods from the ev to the plot object. These methods
@@ -47,73 +46,83 @@ var Events = {
         plotObj.removeAllListeners = ev.removeAllListeners.bind(ev);
 
         /*
-         * We must wrap emit to continue to support JQuery events. The idea
-         * is to check to see if the user is using JQuery events, if they are
-         * we emit JQuery events to trigger user handlers as well as the EventEmitter
-         * events.
+         * Create functions for managing internal events. These are *only* triggered
+         * by the mirroring of external events via the emit function.
          */
-        plotObj.emit = function(event, data) {
-            if(typeof jQuery !== 'undefined') {
-                jQuery(plotObj).trigger(event, data);
-            }
+        plotObj._internalOn = internalEv.on.bind(internalEv);
+        plotObj._internalOnce = internalEv.once.bind(internalEv);
+        plotObj._removeInternalListener = internalEv.removeListener.bind(internalEv);
+        plotObj._removeAllInternalListeners = internalEv.removeAllListeners.bind(internalEv);
 
+        plotObj.emit = function(event, data) {
             ev.emit(event, data);
+            internalEv.emit(event, data);
         };
+
+        /*
+        * Add a dummy event handler for 'wheel' event for Safari
+        * to enable mouse wheel zoom.
+        * https://github.com/d3/d3/issues/3035
+        * https://github.com/plotly/plotly.js/issues/7452
+        *
+        * We set {passive: true} for better performance
+        * and to avoid a Violation warning in Chromium.
+        * https://github.com/WICG/EventListenerOptions/blob/gh-pages/explainer.md
+        * https://github.com/plotly/plotly.js/issues/7516
+        */
+        if(typeof plotObj.addEventListener === 'function') {
+            plotObj.addEventListener("wheel", () => {}, { passive: true });
+        }
 
         return plotObj;
     },
 
     /*
-     * This function behaves like jQueries triggerHandler. It calls
+     * This function behaves like jQuery's triggerHandler. It calls
      * all handlers for a particular event and returns the return value
-     * of the LAST handler. This function also triggers jQuery's
-     * triggerHandler for backwards compatibility.
+     * of the LAST handler.
      */
     triggerHandler: function(plotObj, event, data) {
-        var jQueryHandlerValue;
         var nodeEventHandlerValue;
-        /*
-         * If Jquery exists run all its handlers for this event and
-         * collect the return value of the LAST handler function
-         */
-        if(typeof jQuery !== 'undefined') {
-            jQueryHandlerValue = jQuery(plotObj).triggerHandler(event, data);
-        }
 
         /*
          * Now run all the node style event handlers
          */
         var ev = plotObj._ev;
-        if(!ev) return jQueryHandlerValue;
+        if(!ev) return;
 
         var handlers = ev._events[event];
-        if(!handlers) return jQueryHandlerValue;
+        if(!handlers) return;
 
-        /*
-         * handlers can be function or an array of functions
-         */
-        if(typeof handlers === 'function') handlers = [handlers];
-        var lastHandler = handlers.pop();
-
-        /*
-         * Call all the handlers except the last one.
-         */
-        for(var i = 0; i < handlers.length; i++) {
-            handlers[i](data);
+        // making sure 'this' is the EventEmitter instance
+        function apply(handler) {
+            // The 'once' case, we can't just call handler() as we need
+            // the return value here. So,
+            // - remove handler
+            // - call listener and grab return value!
+            // - stash 'fired' key to not call handler twice
+            if(handler.listener) {
+                ev.removeListener(event, handler.listener);
+                if(!handler.fired) {
+                    handler.fired = true;
+                    return handler.listener.apply(ev, [data]);
+                }
+            } else {
+                return handler.apply(ev, [data]);
+            }
         }
 
-        /*
-         * Now call the final handler and collect its value
-         */
-        nodeEventHandlerValue = lastHandler(data);
+        // handlers can be function or an array of functions
+        handlers = Array.isArray(handlers) ? handlers : [handlers];
 
-        /*
-         * Return either the jquery handler value if it exists or the
-         * nodeEventHandler value. Jquery event value superceeds nodejs
-         * events for backwards compatability reasons.
-         */
-        return jQueryHandlerValue !== undefined ? jQueryHandlerValue :
-            nodeEventHandlerValue;
+        var i;
+        for(i = 0; i < handlers.length - 1; i++) {
+            apply(handlers[i]);
+        }
+        // now call the final handler and collect its value
+        nodeEventHandlerValue = apply(handlers[i]);
+
+        return nodeEventHandlerValue;
     },
 
     purge: function(plotObj) {
@@ -123,6 +132,13 @@ var Events = {
         delete plotObj.removeListener;
         delete plotObj.removeAllListeners;
         delete plotObj.emit;
+
+        delete plotObj._ev;
+        delete plotObj._internalEv;
+        delete plotObj._internalOn;
+        delete plotObj._internalOnce;
+        delete plotObj._removeInternalListener;
+        delete plotObj._removeAllInternalListeners;
 
         return plotObj;
     }

@@ -1,12 +1,3 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
 'use strict';
 
 var str2RGBArray = require('../../../lib/str2rgbarray');
@@ -27,6 +18,12 @@ var proto = SpikeOptions.prototype;
 proto.merge = function(sceneLayout) {
     for(var i = 0; i < 3; ++i) {
         var axes = sceneLayout[AXES_NAMES[i]];
+
+        if(!axes.visible) {
+            this.enabled[i] = false;
+            this.drawSides[i] = false;
+            continue;
+        }
 
         this.enabled[i] = axes.showspikes;
         this.colors[i] = str2RGBArray(axes.spikecolor);

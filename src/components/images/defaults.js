@@ -1,50 +1,33 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
 'use strict';
 
-var Axes = require('../../plots/cartesian/axes');
 var Lib = require('../../lib');
-var attributes = require('./attributes');
+var Axes = require('../../plots/cartesian/axes');
+var handleArrayContainerDefaults = require('../../plots/array_container_defaults');
 
+var attributes = require('./attributes');
+var name = 'images';
 
 module.exports = function supplyLayoutDefaults(layoutIn, layoutOut) {
+    var opts = {
+        name: name,
+        handleItemDefaults: imageDefaults
+    };
 
-    if(!layoutIn.images || !Array.isArray(layoutIn.images)) return;
-
-
-    var containerIn = layoutIn.images,
-        containerOut = layoutOut.images = [];
-
-
-    for(var i = 0; i < containerIn.length; i++) {
-        var image = containerIn[i];
-
-        if(!image.source) continue;
-
-        var defaulted = imageDefaults(containerIn[i] || {}, containerOut[i] || {}, layoutOut);
-        containerOut.push(defaulted);
-    }
+    handleArrayContainerDefaults(layoutIn, layoutOut, opts);
 };
 
 
 function imageDefaults(imageIn, imageOut, fullLayout) {
-
-    imageOut = imageOut || {};
-
     function coerce(attr, dflt) {
         return Lib.coerce(imageIn, imageOut, attributes, attr, dflt);
     }
 
-    coerce('source');
+    var source = coerce('source');
+    var visible = coerce('visible', !!source);
+
+    if(!visible) return imageOut;
+
     coerce('layer');
-    coerce('x');
-    coerce('y');
     coerce('xanchor');
     coerce('yanchor');
     coerce('sizex');
@@ -52,12 +35,20 @@ function imageDefaults(imageIn, imageOut, fullLayout) {
     coerce('sizing');
     coerce('opacity');
 
-    for(var i = 0; i < 2; i++) {
-        var tdMock = { _fullLayout: fullLayout },
-            axLetter = ['x', 'y'][i];
+    var gdMock = { _fullLayout: fullLayout };
+    var axLetters = ['x', 'y'];
 
+    for(var i = 0; i < 2; i++) {
         // 'paper' is the fallback axref
-        Axes.coerceRef(imageIn, imageOut, tdMock, axLetter, 'paper');
+        var axLetter = axLetters[i];
+        var axRef = Axes.coerceRef(imageIn, imageOut, gdMock, axLetter, 'paper', undefined);
+
+        if(axRef !== 'paper') {
+            var ax = Axes.getFromId(gdMock, axRef);
+            ax._imgIndices.push(imageOut._index);
+        }
+
+        Axes.coercePosition(imageOut, gdMock, coerce, axRef, axLetter, 0);
     }
 
     return imageOut;

@@ -7,9 +7,9 @@ module.exports = function pullCSS(data, pathOut) {
     data.split(/\s*\}\s*/).forEach(function(chunk) {
         if(!chunk) return;
 
-        var parts = chunk.split(/\s*\{\s*/),
-            selectorList = parts[0],
-            rule = parts[1];
+        var parts = chunk.split(/\s*\{\s*/);
+        var selectorList = parts[0];
+        var rule = parts[1];
 
         // take off ".js-plotly-plot .plotly", which should be on every selector
         selectorList.split(/,\s*/).forEach(function(selector) {
@@ -38,9 +38,15 @@ module.exports = function pullCSS(data, pathOut) {
     var outStr = [
         '\'use strict\';',
         '',
+        'var Lib = require(\'../src/lib\');',
         'var rules = ' + rulesStr + ';',
         '',
-        'module.exports = rules;',
+        'for(var selector in rules) {',
+        '    var fullSelector = selector.replace(/^,/,\' ,\')',
+        '        .replace(/X/g, \'.js-plotly-plot .plotly\')',
+        '        .replace(/Y/g, \'.plotly-notifier\');',
+        '    Lib.addStyleRule(fullSelector, rules[selector]);',
+        '}',
         ''
     ].join('\n');
 

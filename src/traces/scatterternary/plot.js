@@ -1,44 +1,33 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
 'use strict';
 
 var scatterPlot = require('../scatter/plot');
 
-
-module.exports = function plot(ternary, data) {
+module.exports = function plot(gd, ternary, moduleCalcData) {
     var plotContainer = ternary.plotContainer;
 
     // remove all nodes inside the scatter layer
     plotContainer.select('.scatterlayer').selectAll('*').remove();
 
     // mimic cartesian plotinfo
+    var xa = ternary.xaxis;
+    var ya = ternary.yaxis;
+
     var plotinfo = {
-        x: function() { return ternary.xaxis; },
-        y: function() { return ternary.yaxis; },
-        plot: plotContainer
+        xaxis: xa,
+        yaxis: ya,
+        plot: plotContainer,
+        layerClipId: ternary._hasClipOnAxisFalse ? ternary.clipIdRelative : null
     };
 
-    var calcdata = new Array(data.length),
-        fullCalcdata = ternary.graphDiv.calcdata;
+    var scatterLayer = ternary.layers.frontplot.select('g.scatterlayer');
 
-    for(var i = 0; i < fullCalcdata.length; i++) {
-        var j = data.indexOf(fullCalcdata[i][0].trace);
-
-        if(j === -1) continue;
-
-        calcdata[j] = fullCalcdata[i];
-
-        // while we're here and have references to both the Ternary object
-        // and fullData, connect the two (for use by hover)
-        data[j]._ternary = ternary;
+    for(var i = 0; i < moduleCalcData.length; i++) {
+        var cdi = moduleCalcData[i];
+        if(cdi.length) {
+            cdi[0].trace._xA = xa;
+            cdi[0].trace._yA = ya;
+        }
     }
 
-    scatterPlot(ternary.graphDiv, plotinfo, calcdata);
+    scatterPlot(gd, plotinfo, moduleCalcData, scatterLayer);
 };

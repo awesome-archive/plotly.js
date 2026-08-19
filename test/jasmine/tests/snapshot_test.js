@@ -1,6 +1,12 @@
-var Plotly = require('@lib/index');
+var Plotly = require('../../../lib/index');
+var Lib = require('../../../src/lib');
+
+var d3Select = require('../../strict-d3').select;
+var d3SelectAll = require('../../strict-d3').selectAll;
 var createGraphDiv = require('../assets/create_graph_div');
 var destroyGraphDiv = require('../assets/destroy_graph_div');
+
+
 var subplotMock = require('../../image/mocks/multiple_subplots.json');
 var annotationMock = require('../../image/mocks/annotations.json');
 
@@ -8,7 +14,6 @@ describe('Plotly.Snapshot', function() {
     'use strict';
 
     describe('clone', function() {
-
         var data,
             layout,
             dummyTrace1, dummyTrace2,
@@ -31,19 +36,19 @@ describe('Plotly.Snapshot', function() {
 
         data = [dummyTrace1, dummyTrace2];
         layout = {
-            title: 'Chart Title',
+            title: {text: 'Chart Title'},
             showlegend: true,
             autosize: true,
             width: 688,
             height: 460,
             xaxis: {
-                title: 'xaxis title',
+                title: {text: 'xaxis title'},
                 range: [-0.323374917925, 5.32337491793],
                 type: 'linear',
                 autorange: true
             },
             yaxis: {
-                title: 'yaxis title',
+                title: {text: 'yaxis title'},
                 range: [1.41922290389, 10.5807770961],
                 type: 'linear',
                 autorange: true
@@ -65,9 +70,9 @@ describe('Plotly.Snapshot', function() {
                 autosize: true,
                 width: 150,
                 height: 150,
-                title: '',
+                title: {text: ''},
                 showlegend: false,
-                margin: {'l': 5, 'r': 5, 't': 5, 'b': 5, 'pad': 0},
+                margin: {l: 5, r: 5, t: 5, b: 5, pad: 0},
                 annotations: []
             };
 
@@ -77,13 +82,15 @@ describe('Plotly.Snapshot', function() {
                 displaylogo: false,
                 showLink: false,
                 showTips: false,
-                setBackground: 'opaque'
+                setBackground: 'opaque',
+                mapboxAccessToken: undefined
             };
 
             var themeTile = Plotly.Snapshot.clone(dummyGraphObj, themeOptions);
             expect(themeTile.layout.height).toEqual(THEMETILE_DEFAULT_LAYOUT.height);
             expect(themeTile.layout.width).toEqual(THEMETILE_DEFAULT_LAYOUT.width);
-            expect(themeTile.td.defaultLayout).toEqual(THEMETILE_DEFAULT_LAYOUT);
+            expect(themeTile.gd.defaultLayout).toEqual(THEMETILE_DEFAULT_LAYOUT);
+            expect(themeTile.gd).toBe(themeTile.td); // image server compatibility
             expect(themeTile.config).toEqual(config);
         });
 
@@ -93,16 +100,16 @@ describe('Plotly.Snapshot', function() {
             };
 
             var THUMBNAIL_DEFAULT_LAYOUT = {
-                'title': '',
-                'hidesources': true,
-                'showlegend': false,
-                'hovermode': false,
-                'dragmode': false,
-                'zoom': false,
-                'borderwidth': 0,
-                'bordercolor': '',
-                'margin': {'l': 1, 'r': 1, 't': 1, 'b': 1, 'pad': 0},
-                'annotations': []
+                title: {text: ''},
+                hidesources: true,
+                showlegend: false,
+                hovermode: false,
+                dragmode: false,
+                zoom: false,
+                borderwidth: 0,
+                bordercolor: '',
+                margin: {l: 1, r: 1, t: 1, b: 1, pad: 0},
+                annotations: []
             };
 
             var thumbTile = Plotly.Snapshot.clone(dummyGraphObj, thumbnailOptions);
@@ -110,7 +117,43 @@ describe('Plotly.Snapshot', function() {
             expect(thumbTile.layout.showlegend).toEqual(THUMBNAIL_DEFAULT_LAYOUT.showlegend);
             expect(thumbTile.layout.borderwidth).toEqual(THUMBNAIL_DEFAULT_LAYOUT.borderwidth);
             expect(thumbTile.layout.annotations).toEqual(THUMBNAIL_DEFAULT_LAYOUT.annotations);
+            expect(thumbTile.layout.title).toEqual(THUMBNAIL_DEFAULT_LAYOUT.title);
         });
+
+        it('should create a 3D thumbnail with limited attributes', function() {
+            var figure = {
+                data: [{
+                    type: 'scatter',
+                    mode: 'markers',
+                    y: [2, 4, 6, 5, 7, 4],
+                    x: [1, 3, 4, 6, 3, 1],
+                    name: 'C'
+                }],
+                layout: {
+                    autosize: true,
+                    scene: {
+                        aspectratio: {y: 1, x: 1, z: 1}
+                    }
+                }};
+
+
+            var thumbnailOptions = {
+                tileClass: 'thumbnail'
+            };
+
+            var AXIS_OVERRIDE = {
+                title: {text: ''},
+                showaxeslabels: false,
+                showticklabels: false,
+                linetickenable: false
+            };
+
+            var thumbTile = Plotly.Snapshot.clone(figure, thumbnailOptions);
+            expect(thumbTile.layout.scene.xaxis).toEqual(AXIS_OVERRIDE);
+            expect(thumbTile.layout.scene.yaxis).toEqual(AXIS_OVERRIDE);
+            expect(thumbTile.layout.scene.zaxis).toEqual(AXIS_OVERRIDE);
+        });
+
 
         it('should create a custom sized Tile based on options', function() {
             var customOptions = {
@@ -150,8 +193,8 @@ describe('Plotly.Snapshot', function() {
     });
 
     describe('toSVG', function() {
-        var parser = new DOMParser(),
-            gd;
+        var parser = new DOMParser();
+        var gd;
 
         beforeEach(function() {
             gd = createGraphDiv();
@@ -159,27 +202,181 @@ describe('Plotly.Snapshot', function() {
 
         afterEach(destroyGraphDiv);
 
-
         it('should not return any nested svg tags of plots', function(done) {
-            Plotly.plot(gd, subplotMock.data, subplotMock.layout).then(function() {
+            Plotly.newPlot(gd, subplotMock.data, subplotMock.layout).then(function() {
                 return Plotly.Snapshot.toSVG(gd);
             }).then(function(svg) {
-                var svgDOM = parser.parseFromString(svg, 'image/svg+xml'),
-                    svgElements = svgDOM.getElementsByTagName('svg');
+                var svgDOM = parser.parseFromString(svg, 'image/svg+xml');
+                var svgElements = svgDOM.getElementsByTagName('svg');
 
                 expect(svgElements.length).toBe(1);
-            }).then(done);
+            }).then(done, done.fail);
         });
 
         it('should not return any nested svg tags of annotations', function(done) {
-            Plotly.plot(gd, annotationMock.data, annotationMock.layout).then(function() {
+            Plotly.newPlot(gd, annotationMock.data, annotationMock.layout).then(function() {
                 return Plotly.Snapshot.toSVG(gd);
             }).then(function(svg) {
-                var svgDOM = parser.parseFromString(svg, 'image/svg+xml'),
-                    svgElements = svgDOM.getElementsByTagName('svg');
+                var svgDOM = parser.parseFromString(svg, 'image/svg+xml');
+                var svgElements = svgDOM.getElementsByTagName('svg');
 
                 expect(svgElements.length).toBe(1);
-            }).then(done);
+            }).then(done, done.fail);
+        });
+
+        it('should force *visibility: visible* for text elements with *visibility: inherit*', function(done) {
+            // we've gotten rid of visibility almost entirely, using display instead
+            d3Select(gd).style('visibility', 'inherit');
+
+            Plotly.newPlot(gd, subplotMock.data, subplotMock.layout).then(function() {
+                d3Select(gd).selectAll('text').each(function() {
+                    var thisStyle = window.getComputedStyle(this);
+                    expect(thisStyle.visibility).toEqual('visible');
+                    expect(thisStyle.display).toEqual('block');
+                });
+
+                return Plotly.Snapshot.toSVG(gd);
+            })
+            .then(function(svg) {
+                var svgDOM = parser.parseFromString(svg, 'image/svg+xml');
+                var textElements = svgDOM.getElementsByTagName('text');
+
+                for(var i = 0; i < textElements.length; i++) {
+                    expect(textElements[i].style.visibility).toEqual('');
+                    expect(textElements[i].style.display).toEqual('');
+                }
+            })
+            .then(done, done.fail);
+        });
+
+        describe('should handle quoted style properties', function() {
+            function checkURL(actual, msg) {
+                // which is enough tot check that toSVG did its job right
+                expect((actual || '').slice(0, 6)).toBe('url(\"#', msg);
+            }
+
+            it('- marker-gradient case', function(done) {
+                Plotly.newPlot(gd, [{
+                    y: [1, 2, 1],
+                    marker: {
+                        gradient: {
+                            type: 'radial',
+                            color: '#fff'
+                        },
+                        color: ['red', 'blue', 'green']
+                    }
+                }], {
+                    font: { family: 'Times New Roman' },
+                    showlegend: true
+                })
+                .then(function() {
+                    d3SelectAll('text').each(function() {
+                        expect(this.style.fontFamily).toEqual('\"Times New Roman\"');
+                    });
+
+                    d3SelectAll('.point,.scatterpts').each(function() {
+                        checkURL(this.style.fill);
+                    });
+
+                    return Plotly.Snapshot.toSVG(gd);
+                })
+                .then(function(svg) {
+                    var svgDOM = parser.parseFromString(svg, 'image/svg+xml');
+                    var i;
+
+                    var textElements = svgDOM.getElementsByTagName('text');
+                    expect(textElements.length).toEqual(12);
+
+                    for(i = 0; i < textElements.length; i++) {
+                        expect(textElements[i].style.fontFamily).toEqual('\"Times New Roman\"');
+                    }
+
+                    var pointElements = svgDOM.getElementsByClassName('point');
+                    expect(pointElements.length).toEqual(3);
+
+                    for(i = 0; i < pointElements.length; i++) {
+                        checkURL(pointElements[i].style.fill);
+                    }
+
+                    var legendPointElements = svgDOM.getElementsByClassName('scatterpts');
+                    expect(legendPointElements.length).toEqual(1);
+                    checkURL(legendPointElements[0].style.fill);
+                })
+                .then(done, done.fail);
+            });
+
+            it('- legend with contour items case', function(done) {
+                var fig = Lib.extendDeep({}, require('../../image/mocks/contour_legend.json'));
+                var fillItemIndices = [0, 4, 5];
+
+                Plotly.newPlot(gd, fig)
+                .then(function() { return Plotly.Snapshot.toSVG(gd); })
+                .then(function(svg) {
+                    var svgDOM = parser.parseFromString(svg, 'image/svg+xml');
+
+                    var fillItems = svgDOM.getElementsByClassName('legendfill');
+                    for(var i = 0; i < fillItemIndices.length; i++) {
+                        checkURL(fillItems[fillItemIndices[i]].firstChild.style.fill, 'fill gradient ' + i);
+                    }
+
+                    var lineItems = svgDOM.getElementsByClassName('legendlines');
+                    checkURL(lineItems[1].firstChild.style.stroke, 'stroke gradient');
+                })
+                .then(done, done.fail);
+            });
+
+            it('- colorbar case', function(done) {
+                var fig = Lib.extendDeep({}, require('../../image/mocks/16.json'));
+
+                Plotly.newPlot(gd, fig)
+                .then(function() { return Plotly.Snapshot.toSVG(gd); })
+                .then(function(svg) {
+                    var svgDOM = parser.parseFromString(svg, 'image/svg+xml');
+
+                    var fillItems = svgDOM.getElementsByClassName('cbfill');
+                    expect(fillItems.length).toBe(1, '# of colorbars');
+                    for(var i = 0; i < fillItems.length; i++) {
+                        checkURL(fillItems[i].style.fill, 'fill gradient ' + i);
+                    }
+                })
+                .then(done, done.fail);
+            });
+
+            it('- legend3dandfriends case', function(done) {
+                var fig = Lib.extendDeep({}, require('../../image/mocks/geo_choropleth-legend.json'));
+
+                Plotly.newPlot(gd, fig)
+                .then(function() { return Plotly.Snapshot.toSVG(gd); })
+                .then(function(svg) {
+                    var svgDOM = parser.parseFromString(svg, 'image/svg+xml');
+
+                    var fillItems = svgDOM.getElementsByClassName('legend3dandfriends');
+                    expect(fillItems.length).toBe(4, '# of legend items');
+                    for(var i = 0; i < fillItems.length; i++) {
+                        checkURL(fillItems[i].style.fill, 'fill gradient ' + i);
+                    }
+                })
+                .then(done, done.fail);
+            });
+        });
+
+        it('should adapt *viewBox* attribute under *scale* option', function(done) {
+            Plotly.newPlot(gd, [{
+                y: [1, 2, 1]
+            }], {
+                width: 300,
+                height: 400
+            })
+            .then(function() {
+                var str = Plotly.Snapshot.toSVG(gd, 'svg', 2.5);
+                var dom = parser.parseFromString(str, 'image/svg+xml');
+                var el = dom.getElementsByTagName('svg')[0];
+
+                expect(el.getAttribute('width')).toBe('750', 'width');
+                expect(el.getAttribute('height')).toBe('1000', 'height');
+                expect(el.getAttribute('viewBox')).toBe('0 0 300 400', 'viewbox');
+            })
+            .then(done, done.fail);
         });
     });
 });

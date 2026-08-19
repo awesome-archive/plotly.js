@@ -1,78 +1,100 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
 'use strict';
 
-var d3 = require('d3');
+var d3 = require('@plotly/d3');
 
-var getColorscale = require('../../components/colorscale/get_scale');
-
+var Colorscale = require('../../components/colorscale');
+var endPlus = require('./end_plus');
 
 module.exports = function makeColorMap(trace) {
-    var contours = trace.contours,
-        start = contours.start,
-        end = contours.end,
-        cs = contours.size || 1,
-        nc = Math.floor((end + cs / 10 - start) / cs) + 1,
-        extra = contours.coloring === 'lines' ? 0 : 1;
+    var contours = trace.contours;
+    var start = contours.start;
+    var end = endPlus(contours);
+    var cs = contours.size || 1;
+    var nc = Math.floor((end - start) / cs) + 1;
+    var extra = contours.coloring === 'lines' ? 0 : 1;
+    var cOpts = Colorscale.extractOpts(trace);
 
-    var scl = getColorscale(trace.colorscale),
-        len = scl.length;
+    if(!isFinite(cs)) {
+        cs = 1;
+        nc = 1;
+    }
 
-    var domain = new Array(len),
-        range = new Array(len);
+    var scl = cOpts.reversescale ?
+        Colorscale.flipScale(cOpts.colorscale) :
+        cOpts.colorscale;
+
+    var len = scl.length;
+    var domain = new Array(len);
+    var range = new Array(len);
 
     var si, i;
 
-    if(contours.coloring === 'heatmap') {
-        if(trace.zauto && trace.autocontour === false) {
-            trace.zmin = start - cs / 2;
-            trace.zmax = trace.zmin + nc * cs;
-        }
+    var zmin0 = cOpts.min;
+    var zmax0 = cOpts.max;
 
+    if(contours.coloring === 'heatmap') {
         for(i = 0; i < len; i++) {
             si = scl[i];
-
-            domain[i] = si[0] * (trace.zmax - trace.zmin) + trace.zmin;
+            domain[i] = si[0] * (zmax0 - zmin0) + zmin0;
             range[i] = si[1];
         }
 
         // do the contours extend beyond the colorscale?
         // if so, extend the colorscale with constants
-        var zRange = d3.extent([trace.zmin, trace.zmax, contours.start,
-                contours.start + cs * (nc - 1)]),
-            zmin = zRange[trace.zmin < trace.zmax ? 0 : 1],
-            zmax = zRange[trace.zmin < trace.zmax ? 1 : 0];
+        var zRange = d3.extent([
+            zmin0,
+            zmax0,
+            contours.start,
+            contours.start + cs * (nc - 1)
+        ]);
+        var zmin = zRange[zmin0 < zmax0 ? 0 : 1];
+        var zmax = zRange[zmin0 < zmax0 ? 1 : 0];
 
-        if(zmin !== trace.zmin) {
+        if(zmin !== zmin0) {
             domain.splice(0, 0, zmin);
-            range.splice(0, 0, Range[0]);
+            range.splice(0, 0, range[0]);
         }
 
-        if(zmax !== trace.zmax) {
+        if(zmax !== zmax0) {
             domain.push(zmax);
             range.push(range[range.length - 1]);
         }
-    }
-    else {
+    } else {
+        var zRangeInput = trace._input && (
+            typeof trace._input.zmin === 'number' && typeof trace._input.zmax === 'number'
+        );
+
+        // If zmin/zmax are explicitly set, consider case where user specifies a
+        // narrower z range than that of the contours start/end.
+        if(zRangeInput && (start <= zmin0 || end >= zmax0)) {
+            if(start <= zmin0) start = zmin0;
+            if(end >= zmax0) end = zmax0;
+            nc = Math.floor((end - start) / cs) + 1;
+            extra = 0;
+        }
+
         for(i = 0; i < len; i++) {
             si = scl[i];
-
             domain[i] = (si[0] * (nc + extra - 1) - (extra / 2)) * cs + start;
             range[i] = si[1];
         }
+
+        // Make the colorscale fit the z range except if contours are explicitly
+        // set BUT NOT zmin/zmax.
+        if(zRangeInput || trace.autocontour) {
+            if(domain[0] > zmin0) {
+                domain.unshift(zmin0);
+                range.unshift(range[0]);
+            }
+            if(domain[domain.length - 1] < zmax0) {
+                domain.push(zmax0);
+                range.push(range[range.length - 1]);
+            }
+        }
     }
 
-    var colorMap = d3.scale.linear()
-        .interpolate(d3.interpolateRgb)
-        .domain(domain)
-        .range(range);
-
-    return colorMap;
+    return Colorscale.makeColorScaleFunc(
+        {domain: domain, range: range},
+        {noNumericCheck: true}
+    );
 };

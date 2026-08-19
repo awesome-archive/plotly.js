@@ -1,16 +1,16 @@
-var Surface = require('@src/traces/surface');
+var Plotly = require('../../../lib/index');
+var Lib = require('../../../src/lib');
+var supplyDefaults = require('../../../src/traces/surface').supplyDefaults;
 
-var Lib = require('@src/lib');
-
+var createGraphDiv = require('../assets/create_graph_div');
+var destroyGraphDiv = require('../assets/destroy_graph_div');
 
 describe('Test surface', function() {
     'use strict';
 
     describe('supplyDefaults', function() {
-        var supplyDefaults = Surface.supplyDefaults;
-
-        var defaultColor = '#444',
-            layout = {};
+        var defaultColor = '#444';
+        var layout = {_dfltTitle: {colorbar: 'cb'}, font: {color: '#444'}};
 
         var traceIn, traceOut;
 
@@ -25,14 +25,15 @@ describe('Test surface', function() {
             expect(traceOut.visible).toBe(false);
         });
 
-        it('should fill \'x\' and \'y\' if not provided', function() {
+        it('should NOT fill \'x\' and \'y\' if not provided', function() {
+            // this happens later on now
             traceIn = {
                 z: [[1, 2, 3], [2, 1, 2]]
             };
 
             supplyDefaults(traceIn, traceOut, defaultColor, layout);
-            expect(traceOut.x).toEqual([0, 1, 2]);
-            expect(traceOut.y).toEqual([0, 1]);
+            expect(traceOut.x).toBeUndefined();
+            expect(traceOut.y).toBeUndefined();
         });
 
         it('should coerce \'project\' if contours or highlight lines are enabled', function() {
@@ -101,39 +102,9 @@ describe('Test surface', function() {
                 [0.7, 'rgb(230,145,90)'],
                 [1, 'rgb(178,10,28)']
             ]);
+            expect(traceOut.reversescale).toBe(false);
             expect(traceOut.showscale).toBe(true);
             expect(traceOut.colorbar).toBeDefined();
-        });
-
-        it('should coerce \'c\' attributes with \'z\' if \'c\' isn\'t present', function() {
-            traceIn = {
-                z: [[1, 2, 3], [2, 1, 2]],
-                zauto: false,
-                zmin: 0,
-                zmax: 10
-            };
-
-            supplyDefaults(traceIn, traceOut, defaultColor, layout);
-            expect(traceOut.cauto).toEqual(false);
-            expect(traceOut.cmin).toEqual(0);
-            expect(traceOut.cmax).toEqual(10);
-        });
-
-        it('should coerce \'c\' attributes with \'c\' values regardless of `\'z\' if \'c\' is present', function() {
-            traceIn = {
-                z: [[1, 2, 3], [2, 1, 2]],
-                zauto: false,
-                zmin: 0,
-                zmax: 10,
-                cauto: true,
-                cmin: -10,
-                cmax: 20
-            };
-
-            supplyDefaults(traceIn, traceOut, defaultColor, layout);
-            expect(traceOut.cauto).toEqual(true);
-            expect(traceOut.cmin).toEqual(-10);
-            expect(traceOut.cmax).toEqual(20);
         });
 
         it('should default \'c\' attributes with if \'surfacecolor\' is present', function() {
@@ -149,6 +120,137 @@ describe('Test surface', function() {
             expect(traceOut.cauto).toEqual(true);
             expect(traceOut.cmin).toBeUndefined();
             expect(traceOut.cmax).toBeUndefined();
+        });
+
+        it('should inherit layout.calendar', function() {
+            traceIn = {
+                z: [[1, 2, 3], [2, 1, 2]]
+            };
+            supplyDefaults(traceIn, traceOut, defaultColor, Lib.extendFlat({calendar: 'islamic'}, layout));
+
+            // we always fill calendar attributes, because it's hard to tell if
+            // we're on a date axis at this point.
+            expect(traceOut.xcalendar).toBe('islamic');
+            expect(traceOut.ycalendar).toBe('islamic');
+            expect(traceOut.zcalendar).toBe('islamic');
+        });
+
+        it('should take its own calendars', function() {
+            var traceIn = {
+                z: [[1, 2, 3], [2, 1, 2]],
+                xcalendar: 'coptic',
+                ycalendar: 'ethiopian',
+                zcalendar: 'mayan'
+            };
+
+            supplyDefaults(traceIn, traceOut, defaultColor, layout);
+            expect(traceOut.xcalendar).toBe('coptic');
+            expect(traceOut.ycalendar).toBe('ethiopian');
+            expect(traceOut.zcalendar).toBe('mayan');
+        });
+    });
+
+    describe('Test dimension and expected visibility tests', function() {
+        var gd;
+
+        beforeEach(function() {
+            gd = createGraphDiv();
+        });
+
+        afterEach(function() {
+            Plotly.purge(gd);
+            destroyGraphDiv();
+        });
+
+        function assertVisibility(exp, msg) {
+            expect(gd._fullData[0]).not.toBe(undefined, 'no visibility!');
+            expect(gd._fullData[0].visible).toBe(exp, msg);
+        }
+
+        it('@gl surface should be invisible when the z array is empty', function(done) {
+            Plotly.newPlot(gd, [{
+                type: 'surface',
+                z: []
+            }])
+            .then(function() {
+                assertVisibility(false, 'not to be visible');
+            })
+            .then(done, done.fail);
+        });
+
+        it('@gl surface should be invisible when the x array is defined but is empty', function(done) {
+            Plotly.newPlot(gd, [{
+                type: 'surface',
+                x: [],
+                y: [0, 1],
+                z: []
+            }])
+            .then(function() {
+                assertVisibility(false, 'not to be visible');
+            })
+            .then(done, done.fail);
+        });
+
+        it('@gl surface should be invisible when the y array is defined but is empty', function(done) {
+            Plotly.newPlot(gd, [{
+                type: 'surface',
+                x: [0, 1],
+                y: [],
+                z: []
+            }])
+            .then(function() {
+                assertVisibility(false, 'not to be visible');
+            })
+            .then(done, done.fail);
+        });
+
+        it('@gl surface should be invisible when the x array is defined and has at least one item', function(done) {
+            Plotly.newPlot(gd, [{
+                type: 'surface',
+                x: [0],
+                y: [0, 1],
+                z: [[1], [2]]
+            }])
+            .then(function() {
+                assertVisibility(true, 'to be visible');
+            })
+            .then(done, done.fail);
+        });
+
+        it('@gl surface should be invisible when the y array is defined and has at least one item', function(done) {
+            Plotly.newPlot(gd, [{
+                type: 'surface',
+                x: [0, 1],
+                y: [0],
+                z: [[1, 2]]
+            }])
+            .then(function() {
+                assertVisibility(true, 'to be visible');
+            })
+            .then(done, done.fail);
+        });
+
+        it('@gl surface should be visible when the x and y are not provided; but z array is provided', function(done) {
+            Plotly.newPlot(gd, [{
+                type: 'surface',
+                z: [[1, 2], [3, 4]]
+            }])
+            .then(function() {
+                assertVisibility(true, 'to be visible');
+            })
+            .then(done, done.fail);
+        });
+
+        it('@gl surface should be invisible when the x and y are provided; but z array is not provided', function(done) {
+            Plotly.newPlot(gd, [{
+                type: 'surface',
+                x: [0, 1],
+                y: [0, 1]
+            }])
+            .then(function() {
+                assertVisibility(false, 'to be invisible');
+            })
+            .then(done, done.fail);
         });
     });
 });

@@ -1,12 +1,3 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
 'use strict';
 
 var Lib = require('../../lib');
@@ -15,57 +6,80 @@ var subTypes = require('../scatter/subtypes');
 var handleMarkerDefaults = require('../scatter/marker_defaults');
 var handleLineDefaults = require('../scatter/line_defaults');
 var handleTextDefaults = require('../scatter/text_defaults');
+var handleFillColorDefaults = require('../scatter/fillcolor_defaults');
 
 var attributes = require('./attributes');
 
+const locationmodeBreakingChangeWarning = [
+    'The library used by the *country names* `locationmode` option is changing in the next major version.',
+    'Some country names in existing plots may not work in the new version.',
+    'To ensure consistent behavior, consider setting `locationmode` to *ISO-3*.'
+].join(' ');
 
 module.exports = function supplyDefaults(traceIn, traceOut, defaultColor, layout) {
     function coerce(attr, dflt) {
         return Lib.coerce(traceIn, traceOut, attributes, attr, dflt);
     }
 
-    var len = handleLonLatLocDefaults(traceIn, traceOut, coerce);
-    if(!len) {
+    var locations = coerce('locations');
+    var len;
+
+    if (locations && locations.length) {
+        var geojson = coerce('geojson');
+        var locationmodeDflt;
+        if ((typeof geojson === 'string' && geojson !== '') || Lib.isPlainObject(geojson)) {
+            locationmodeDflt = 'geojson-id';
+        }
+
+        var locationMode = coerce('locationmode', locationmodeDflt);
+
+        if (locationMode === 'country names') {
+            Lib.warn(locationmodeBreakingChangeWarning);
+        }
+
+        if (locationMode === 'geojson-id') {
+            coerce('featureidkey');
+        }
+
+        len = locations.length;
+    } else {
+        var lon = coerce('lon') || [];
+        var lat = coerce('lat') || [];
+        len = Math.min(lon.length, lat.length);
+    }
+
+    if (!len) {
         traceOut.visible = false;
         return;
     }
 
+    traceOut._length = len;
+
     coerce('text');
+    coerce('hovertext');
+    coerce('hovertemplate');
+    coerce('hovertemplatefallback');
     coerce('mode');
 
-    if(subTypes.hasLines(traceOut)) {
+    if (subTypes.hasMarkers(traceOut)) {
+        handleMarkerDefaults(traceIn, traceOut, defaultColor, layout, coerce, { gradient: true });
+    }
+
+    if (subTypes.hasLines(traceOut)) {
         handleLineDefaults(traceIn, traceOut, defaultColor, layout, coerce);
+        coerce('connectgaps');
     }
 
-    if(subTypes.hasMarkers(traceOut)) {
-        handleMarkerDefaults(traceIn, traceOut, defaultColor, layout, coerce);
-    }
-
-    if(subTypes.hasText(traceOut)) {
+    if (subTypes.hasText(traceOut)) {
+        coerce('texttemplate');
+        coerce('texttemplatefallback');
         handleTextDefaults(traceIn, traceOut, layout, coerce);
     }
 
-    coerce('hoverinfo', (layout._dataLength === 1) ? 'lon+lat+location+text' : undefined);
-};
-
-function handleLonLatLocDefaults(traceIn, traceOut, coerce) {
-    var len = 0,
-        locations = coerce('locations');
-
-    var lon, lat;
-
-    if(locations) {
-        coerce('locationmode');
-        len = locations.length;
-        return len;
+    coerce('fill');
+    if (traceOut.fill !== 'none') {
+        handleFillColorDefaults(traceIn, traceOut, defaultColor, coerce);
     }
 
-    lon = coerce('lon') || [];
-    lat = coerce('lat') || [];
-    len = Math.min(lon.length, lat.length);
-
-    if(len < lon.length) traceOut.lon = lon.slice(0, len);
-    if(len < lat.length) traceOut.lat = lat.slice(0, len);
-
-    return len;
-}
+    Lib.coerceSelectionMarkerOpacity(traceOut, coerce);
+};

@@ -1,15 +1,7 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
 'use strict';
 
 var isNumeric = require('fast-isnumeric');
+var isArrayOrTypedArray = require('./array').isArrayOrTypedArray;
 
 /**
  * convert a string s (such as 'xaxis.range[0]')
@@ -28,17 +20,24 @@ var isNumeric = require('fast-isnumeric');
 module.exports = function nestedProperty(container, propStr) {
     if(isNumeric(propStr)) propStr = String(propStr);
     else if(typeof propStr !== 'string' ||
-            propStr.substr(propStr.length - 4) === '[-1]') {
+            propStr.slice(-4) === '[-1]') {
         throw 'bad property string';
     }
 
-    var j = 0,
-        propParts = propStr.split('.'),
-        indexed,
-        indices,
-        i;
+    var propParts = propStr.split('.');
+    var indexed;
+    var indices;
+    var i, j;
+
+    for(j = 0; j < propParts.length; j++) {
+        // guard against polluting __proto__ and other internals
+        if(String(propParts[j]).slice(0, 2) === '__') {
+            throw 'bad property string';
+        }
+    }
 
     // check for parts of the nesting hierarchy that are numbers (ie array elements)
+    j = 0;
     while(j < propParts.length) {
         // look for non-bracket chars, then any number of [##] blocks
         indexed = String(propParts[j]).match(/^([^\[\]]*)((\[\-?[0-9]*\])+)$/);
@@ -49,7 +48,7 @@ module.exports = function nestedProperty(container, propStr) {
             else throw 'bad property string';
 
             indices = indexed[2]
-                .substr(1, indexed[2].length - 2)
+                .slice(1, -1)
                 .split('][');
 
             for(i = 0; i < indices.length; i++) {
@@ -65,7 +64,7 @@ module.exports = function nestedProperty(container, propStr) {
     }
 
     return {
-        set: npSet(container, propParts),
+        set: npSet(container, propParts, propStr),
         get: npGet(container, propParts),
         astr: propStr,
         parts: propParts,
@@ -74,13 +73,13 @@ module.exports = function nestedProperty(container, propStr) {
 };
 
 function npGet(cont, parts) {
-    return function() {
-        var curCont = cont,
-            curPart,
-            allSame,
-            out,
-            i,
-            j;
+    return function(retainNull) {
+        var curCont = cont;
+        var curPart;
+        var allSame;
+        var out;
+        var i;
+        var j;
 
         for(i = 0; i < parts.length - 1; i++) {
             curPart = parts[i];
@@ -88,12 +87,12 @@ function npGet(cont, parts) {
                 allSame = true;
                 out = [];
                 for(j = 0; j < curCont.length; j++) {
-                    out[j] = npGet(curCont[j], parts.slice(i + 1))();
+                    out[j] = npGet(curCont[j], parts.slice(i + 1))(retainNull);
                     if(out[j] !== out[0]) allSame = false;
                 }
                 return allSame ? out[0] : out;
             }
-            if(typeof curPart === 'number' && !Array.isArray(curCont)) {
+            if(typeof curPart === 'number' && !isArrayOrTypedArray(curCont)) {
                 return undefined;
             }
             curCont = curCont[curPart];
@@ -106,43 +105,48 @@ function npGet(cont, parts) {
         if(typeof curCont !== 'object' || curCont === null) return undefined;
 
         out = curCont[parts[i]];
-        if(out === null) return undefined;
+        if(!retainNull && (out === null)) return undefined;
         return out;
     };
 }
 
 /*
- * Check known non-data-array arrays (containers). Data arrays only contain scalars,
- * so parts[end] values, such as -1 or n, indicate we are not dealing with a dataArray.
- * The ONLY case we are looking for is where the entire array is selected, parts[end] === 'x'
- * AND the replacement value is an array.
+ * Can this value be deleted? We can delete `undefined`, and `null` except INSIDE an
+ * *args* array.
+ *
+ * Previously we also deleted some `{}` and `[]`, in order to try and make set/unset
+ * a net noop; but this causes far more complication than it's worth, and still had
+ * lots of exceptions. See https://github.com/plotly/plotly.js/issues/1410
+ *
+ * *args* arrays get passed directly to API methods and we should respect null if
+ * the user put it there, but otherwise null is deleted as we use it as code
+ * in restyle/relayout/update for "delete this value" whereas undefined means
+ * "ignore this edit"
  */
-function isDataArray(val, key) {
-
-    var containers = ['annotations', 'shapes', 'range', 'domain', 'buttons'],
-        isNotAContainer = containers.indexOf(key) === -1;
-
-    return Array.isArray(val) && isNotAContainer;
+var ARGS_PATTERN = /(^|\.)args\[/;
+function isDeletable(val, propStr) {
+    return (val === undefined) || (val === null && !propStr.match(ARGS_PATTERN));
 }
 
-function npSet(cont, parts) {
+function npSet(cont, parts, propStr) {
     return function(val) {
-        var curCont = cont,
-            containerLevels = [cont],
-            toDelete = emptyObj(val) && !isDataArray(val, parts[parts.length - 1]),
-            curPart,
-            i;
+        var curCont = cont;
+        var propPart = '';
+        var containerLevels = [[cont, propPart]];
+        var toDelete = isDeletable(val, propStr);
+        var curPart;
+        var i;
 
         for(i = 0; i < parts.length - 1; i++) {
             curPart = parts[i];
 
-            if(typeof curPart === 'number' && !Array.isArray(curCont)) {
+            if(typeof curPart === 'number' && !isArrayOrTypedArray(curCont)) {
                 throw 'array index but container is not an array';
             }
 
             // handle special -1 array index
             if(curPart === -1) {
-                toDelete = !setArrayAll(curCont, parts.slice(i + 1), val);
+                toDelete = !setArrayAll(curCont, parts.slice(i + 1), val, propStr);
                 if(toDelete) break;
                 else return;
             }
@@ -157,36 +161,57 @@ function npSet(cont, parts) {
                 throw 'container is not an object';
             }
 
-            containerLevels.push(curCont);
+            propPart = joinPropStr(propPart, curPart);
+
+            containerLevels.push([curCont, propPart]);
         }
 
         if(toDelete) {
-            if(i === parts.length - 1) delete curCont[parts[i]];
-            pruneContainers(containerLevels);
-        }
-        else curCont[parts[i]] = val;
+            if(i === parts.length - 1) {
+                delete curCont[parts[i]];
+
+                // The one bit of pruning we still do: drop `undefined` from the end of arrays.
+                // In case someone has already unset previous items, continue until we hit a
+                // non-undefined value.
+                if(Array.isArray(curCont) && +parts[i] === curCont.length - 1) {
+                    while(curCont.length && curCont[curCont.length - 1] === undefined) {
+                        curCont.pop();
+                    }
+                }
+            }
+        } else curCont[parts[i]] = val;
     };
 }
 
+function joinPropStr(propStr, newPart) {
+    var toAdd = newPart;
+    if(isNumeric(newPart)) toAdd = '[' + newPart + ']';
+    else if(propStr) toAdd = '.' + newPart;
+
+    return propStr + toAdd;
+}
+
 // handle special -1 array index
-function setArrayAll(containerArray, innerParts, val) {
-    var arrayVal = Array.isArray(val),
-        allSet = true,
-        thisVal = val,
-        deleteThis = arrayVal ? false : emptyObj(val),
-        firstPart = innerParts[0],
-        i;
+function setArrayAll(containerArray, innerParts, val, propStr) {
+    var arrayVal = isArrayOrTypedArray(val);
+    var allSet = true;
+    var thisVal = val;
+    var thisPropStr = propStr.replace('-1', 0);
+    var deleteThis = arrayVal ? false : isDeletable(val, thisPropStr);
+    var firstPart = innerParts[0];
+    var i;
 
     for(i = 0; i < containerArray.length; i++) {
+        thisPropStr = propStr.replace('-1', i);
         if(arrayVal) {
             thisVal = val[i % val.length];
-            deleteThis = emptyObj(thisVal);
+            deleteThis = isDeletable(thisVal, thisPropStr);
         }
         if(deleteThis) allSet = false;
         if(!checkNewContainer(containerArray, i, firstPart, deleteThis)) {
             continue;
         }
-        npSet(containerArray[i], innerParts)(thisVal);
+        npSet(containerArray[i], innerParts, propStr.replace('-1', i))(thisVal);
     }
     return allSet;
 }
@@ -204,43 +229,6 @@ function checkNewContainer(container, part, nextPart, toDelete) {
         else container[part] = {};
     }
     return true;
-}
-
-function pruneContainers(containerLevels) {
-    var i,
-        j,
-        curCont,
-        keys,
-        remainingKeys;
-    for(i = containerLevels.length - 1; i >= 0; i--) {
-        curCont = containerLevels[i];
-        remainingKeys = false;
-        if(Array.isArray(curCont)) {
-            for(j = curCont.length - 1; j >= 0; j--) {
-                if(emptyObj(curCont[j])) {
-                    if(remainingKeys) curCont[j] = undefined;
-                    else curCont.pop();
-                }
-                else remainingKeys = true;
-            }
-        }
-        else if(typeof curCont === 'object' && curCont !== null) {
-            keys = Object.keys(curCont);
-            remainingKeys = false;
-            for(j = keys.length - 1; j >= 0; j--) {
-                if(emptyObj(curCont[keys[j]]) && !isDataArray(curCont[keys[j]], keys[j])) delete curCont[keys[j]];
-                else remainingKeys = true;
-            }
-        }
-        if(remainingKeys) return;
-    }
-}
-
-function emptyObj(obj) {
-    if(obj === undefined || obj === null) return true;
-    if(typeof obj !== 'object') return false; // any plain value
-    if(Array.isArray(obj)) return !obj.length; // []
-    return !Object.keys(obj).length; // {}
 }
 
 function badContainer(container, propStr, propParts) {

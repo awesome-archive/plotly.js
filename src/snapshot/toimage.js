@@ -1,18 +1,14 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
 'use strict';
 
 var EventEmitter = require('events').EventEmitter;
 
-var Plotly = require('../plotly');
+var Registry = require('../registry');
 var Lib = require('../lib');
 
+var helpers = require('./helpers');
+var clonePlot = require('./cloneplot');
+var toSVG = require('./tosvg');
+var svgToImg = require('./svgtoimg');
 
 /**
  * @param {object} gd figure Object
@@ -20,13 +16,11 @@ var Lib = require('../lib');
  * @param opts.format 'jpeg' | 'png' | 'webp' | 'svg'
  */
 function toImage(gd, opts) {
-
     // first clone the GD so we can operate in a clean environment
-    var Snapshot = Plotly.Snapshot;
     var ev = new EventEmitter();
 
-    var clone = Snapshot.clone(gd, {format: 'png'});
-    var clonedGd = clone.td;
+    var clone = clonePlot(gd, {format: 'png'});
+    var clonedGd = clone.gd;
 
     // put the cloned div somewhere off screen before attaching to DOM
     clonedGd.style.position = 'absolute';
@@ -34,15 +28,15 @@ function toImage(gd, opts) {
     document.body.appendChild(clonedGd);
 
     function wait() {
-        var delay = Snapshot.getDelay(clonedGd._fullLayout);
+        var delay = helpers.getDelay(clonedGd._fullLayout);
 
         setTimeout(function() {
-            var svg = Plotly.Snapshot.toSVG(clonedGd);
+            var svg = toSVG(clonedGd);
 
             var canvas = document.createElement('canvas');
             canvas.id = Lib.randstr();
 
-            ev = Plotly.Snapshot.svgToImg({
+            ev = svgToImg({
                 format: opts.format,
                 width: clonedGd._fullLayout.width,
                 height: clonedGd._fullLayout.height,
@@ -54,16 +48,12 @@ function toImage(gd, opts) {
             ev.clean = function() {
                 if(clonedGd) document.body.removeChild(clonedGd);
             };
-
         }, delay);
     }
 
-    var redrawFunc = Snapshot.getRedrawFunc(clonedGd);
+    var redrawFunc = helpers.getRedrawFunc(clonedGd);
 
-    Plotly.plot(clonedGd, clone.data, clone.layout, clone.config)
-        // TODO: the following is Plotly.Plots.redrawText but without the waiting.
-        // we shouldn't need to do this, but in *occasional* cases we do. Figure
-        // out why and take it out.
+    Registry.call('_doPlot', clonedGd, clone.data, clone.layout, clone.config)
         .then(redrawFunc)
         .then(wait)
         .catch(function(err) {

@@ -1,34 +1,41 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
 'use strict';
 
+var deprecationWarning = [
+    '*scattermapbox* trace is deprecated!',
+    'Please consider switching to the *scattermap* trace type and `map` subplots.',
+    'Learn more at: https://plotly.com/python/maplibre-migration/',
+    'as well as https://plotly.com/javascript/maplibre-migration/'
+].join(' ');
 
-var ScatterMapbox = {};
+module.exports = {
+    attributes: require('./attributes'),
+    supplyDefaults: require('./defaults'),
+    colorbar: require('../scatter/marker_colorbar'),
+    formatLabels: require('./format_labels'),
+    calc: require('../scattergeo/calc'),
+    plot: require('./plot'),
+    hoverPoints: require('./hover').hoverPoints,
+    eventData: require('./event_data'),
+    selectPoints: require('./select'),
 
-ScatterMapbox.attributes = require('./attributes');
-ScatterMapbox.supplyDefaults = require('./defaults');
-ScatterMapbox.colorbar = require('../scatter/colorbar');
-ScatterMapbox.calc = require('./calc');
-ScatterMapbox.hoverPoints = require('./hover');
-ScatterMapbox.plot = require('./plot');
+    styleOnSelect: function(_, cd) {
+        if(cd) {
+            var trace = cd[0].trace;
+            trace._glTrace.update(cd);
+        }
+    },
 
-ScatterMapbox.moduleType = 'trace';
-ScatterMapbox.name = 'scattermapbox';
-ScatterMapbox.basePlotModule = require('../../plots/mapbox');
-ScatterMapbox.categories = ['mapbox', 'gl', 'symbols', 'markerColorscale', 'showLegend'];
-ScatterMapbox.meta = {
-    hrName: 'scatter_mapbox',
-    description: [
-        'The data visualized as scatter point, lines or marker symbols',
-        'on a Mapbox GL geographic map',
-        'is provided by longitude/latitude pairs in `lon` and `lat`.'
-    ].join(' ')
+    moduleType: 'trace',
+    name: 'scattermapbox',
+    basePlotModule: require('../../plots/mapbox'),
+    categories: ['mapbox', 'gl', 'symbols', 'showLegend', 'scatter-like'],
+    meta: {
+        hrName: 'scatter_mapbox',
+        description: [
+            deprecationWarning,
+            'The data visualized as scatter point, lines or marker symbols',
+            'on a Mapbox GL geographic map',
+            'is provided by longitude/latitude pairs in `lon` and `lat`.'
+        ].join(' ')
+    }
 };
-
-module.exports = ScatterMapbox;

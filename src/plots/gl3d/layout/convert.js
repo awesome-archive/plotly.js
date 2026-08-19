@@ -1,19 +1,7 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
 'use strict';
 
-var arrtools = require('arraytools');
-var convertHTML = require('../../../lib/html2unicode');
 var str2RgbaArray = require('../../../lib/str2rgbarray');
-
-var arrayCopy1D = arrtools.copy1D;
+var Lib = require('../../../lib');
 
 var AXES_NAMES = ['xaxis', 'yaxis', 'zaxis'];
 
@@ -27,6 +15,9 @@ function AxesOptions() {
     this.tickEnable = [ true, true, true ];
     this.tickFont = [ 'sans-serif', 'sans-serif', 'sans-serif' ];
     this.tickSize = [ 12, 12, 12 ];
+    this.tickFontWeight = [ 'normal', 'normal', 'normal', 'normal' ];
+    this.tickFontStyle = [ 'normal', 'normal', 'normal', 'normal' ];
+    this.tickFontVariant = [ 'normal', 'normal', 'normal', 'normal' ];
     this.tickAngle = [ 0, 0, 0 ];
     this.tickColor = [ [0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1] ];
     this.tickPad = [ 18, 18, 18 ];
@@ -35,7 +26,9 @@ function AxesOptions() {
     this.labelEnable = [ true, true, true ];
     this.labelFont = ['Open Sans', 'Open Sans', 'Open Sans'];
     this.labelSize = [ 20, 20, 20 ];
-    this.labelAngle = [ 0, 0, 0 ];
+    this.labelFontWeight = [ 'normal', 'normal', 'normal', 'normal' ];
+    this.labelFontStyle = [ 'normal', 'normal', 'normal', 'normal' ];
+    this.labelFontVariant = [ 'normal', 'normal', 'normal', 'normal' ];
     this.labelColor = [ [0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1] ];
     this.labelPad = [ 30, 30, 30 ];
 
@@ -64,27 +57,44 @@ function AxesOptions() {
                               [0.8, 0.8, 0.8, 0.5] ];
 
     // some default values are stored for applying model transforms
-    this._defaultTickPad = arrayCopy1D(this.tickPad);
-    this._defaultLabelPad = arrayCopy1D(this.labelPad);
-    this._defaultLineTickLength = arrayCopy1D(this.lineTickLength);
+    this._defaultTickPad = this.tickPad.slice();
+    this._defaultLabelPad = this.labelPad.slice();
+    this._defaultLineTickLength = this.lineTickLength.slice();
 }
 
 var proto = AxesOptions.prototype;
 
-proto.merge = function(sceneLayout) {
+proto.merge = function(fullLayout, sceneLayout) {
     var opts = this;
     for(var i = 0; i < 3; ++i) {
         var axes = sceneLayout[AXES_NAMES[i]];
 
-        /////// Axes labels //
-        opts.labels[i] = convertHTML(axes.title);
-        if('titlefont' in axes) {
-            if(axes.titlefont.color) opts.labelColor[i] = str2RgbaArray(axes.titlefont.color);
-            if(axes.titlefont.family) opts.labelFont[i] = axes.titlefont.family;
-            if(axes.titlefont.size) opts.labelSize[i] = axes.titlefont.size;
+        if(!axes.visible) {
+            opts.tickEnable[i] = false;
+            opts.labelEnable[i] = false;
+            opts.lineEnable[i] = false;
+            opts.lineTickEnable[i] = false;
+            opts.gridEnable[i] = false;
+            opts.zeroEnable[i] = false;
+            opts.backgroundEnable[i] = false;
+            continue;
         }
 
-        /////// LINES ////////
+        // Axes labels
+        opts.labels[i] = fullLayout._meta ?
+            Lib.templateString(axes.title.text, fullLayout._meta) :
+            axes.title.text;
+
+        if('font' in axes.title) {
+            if(axes.title.font.color) opts.labelColor[i] = str2RgbaArray(axes.title.font.color);
+            if(axes.title.font.family) opts.labelFont[i] = axes.title.font.family;
+            if(axes.title.font.size) opts.labelSize[i] = axes.title.font.size;
+            if(axes.title.font.weight) opts.labelFontWeight[i] = axes.title.font.weight;
+            if(axes.title.font.style) opts.labelFontStyle[i] = axes.title.font.style;
+            if(axes.title.font.variant) opts.labelFontVariant[i] = axes.title.font.variant;
+        }
+
+        // Lines
         if('showline' in axes) opts.lineEnable[i] = axes.showline;
         if('linecolor' in axes) opts.lineColor[i] = str2RgbaArray(axes.linecolor);
         if('linewidth' in axes) opts.lineWidth[i] = axes.linewidth;
@@ -100,8 +110,7 @@ proto.merge = function(sceneLayout) {
         if('zerolinecolor' in axes) opts.zeroLineColor[i] = str2RgbaArray(axes.zerolinecolor);
         if('zerolinewidth' in axes) opts.zeroLineWidth[i] = axes.zerolinewidth;
 
-        //////// TICKS /////////
-        /// tick lines
+        // tick lines
         if('ticks' in axes && !!axes.ticks) opts.lineTickEnable[i] = true;
         else opts.lineTickEnable[i] = false;
 
@@ -112,15 +121,19 @@ proto.merge = function(sceneLayout) {
         if('tickwidth' in axes) opts.lineTickWidth[i] = axes.tickwidth;
         if('tickangle' in axes) {
             opts.tickAngle[i] = (axes.tickangle === 'auto') ?
-                0 :
+                -3600 : // i.e. special number to set auto option
                 Math.PI * -axes.tickangle / 180;
         }
+
         // tick labels
         if('showticklabels' in axes) opts.tickEnable[i] = axes.showticklabels;
         if('tickfont' in axes) {
             if(axes.tickfont.color) opts.tickColor[i] = str2RgbaArray(axes.tickfont.color);
             if(axes.tickfont.family) opts.tickFont[i] = axes.tickfont.family;
             if(axes.tickfont.size) opts.tickSize[i] = axes.tickfont.size;
+            if(axes.tickfont.weight) opts.tickFontWeight[i] = axes.tickfont.weight;
+            if(axes.tickfont.style) opts.tickFontStyle[i] = axes.tickfont.style;
+            if(axes.tickfont.variant) opts.tickFontVariant[i] = axes.tickfont.variant;
         }
 
         if('mirror' in axes) {
@@ -145,9 +158,9 @@ proto.merge = function(sceneLayout) {
 };
 
 
-function createAxesOptions(plotlyOptions) {
+function createAxesOptions(fullLayout, sceneLayout) {
     var result = new AxesOptions();
-    result.merge(plotlyOptions);
+    result.merge(fullLayout, sceneLayout);
     return result;
 }
 

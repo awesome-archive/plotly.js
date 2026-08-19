@@ -1,118 +1,180 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
 'use strict';
 
+const { hovertemplateAttrs, texttemplateAttrs, templatefallbackAttrs } = require('../../plots/template_attributes');
+var makeFillcolorAttr = require('../scatter/fillcolor_attribute');
 var scatterGeoAttrs = require('../scattergeo/attributes');
 var scatterAttrs = require('../scatter/attributes');
 var mapboxAttrs = require('../../plots/mapbox/layout_attributes');
-var plotAttrs = require('../../plots/attributes');
+var baseAttrs = require('../../plots/attributes');
+var colorScaleAttrs = require('../../components/colorscale/attributes');
+
 var extendFlat = require('../../lib/extend').extendFlat;
+var overrideAll = require('../../plot_api/edit_types').overrideAll;
+var mapboxLayoutAtributes = require('../../plots/mapbox/layout_attributes');
 
 var lineAttrs = scatterGeoAttrs.line;
 var markerAttrs = scatterGeoAttrs.marker;
 
+module.exports = overrideAll(
+    {
+        lon: scatterGeoAttrs.lon,
+        lat: scatterGeoAttrs.lat,
 
-module.exports = {
-    lon: scatterGeoAttrs.lon,
-    lat: scatterGeoAttrs.lat,
+        cluster: {
+            enabled: {
+                valType: 'boolean',
+                description: 'Determines whether clustering is enabled or disabled.'
+            },
+            maxzoom: extendFlat({}, mapboxLayoutAtributes.layers.maxzoom, {
+                description: [
+                    'Sets the maximum zoom level.',
+                    'At zoom levels equal to or greater than this, points will never be clustered.'
+                ].join(' ')
+            }),
+            step: {
+                valType: 'number',
+                arrayOk: true,
+                dflt: -1,
+                min: -1,
+                description: [
+                    'Sets how many points it takes to create a cluster or advance to the next cluster step.',
+                    'Use this in conjunction with arrays for `size` and / or `color`.',
+                    'If an integer, steps start at multiples of this number.',
+                    'If an array, each step extends from the given value until one less than the next value.'
+                ].join(' ')
+            },
+            size: {
+                valType: 'number',
+                arrayOk: true,
+                dflt: 20,
+                min: 0,
+                description: ['Sets the size for each cluster step.'].join(' ')
+            },
+            color: {
+                valType: 'color',
+                arrayOk: true,
+                description: ['Sets the color for each cluster step.'].join(' ')
+            },
+            opacity: extendFlat({}, markerAttrs.opacity, {
+                dflt: 1
+            })
+        },
 
-    // locations
-    // locationmode
+        // locations
+        // locationmode
 
-    mode: {
-        valType: 'flaglist',
-        flags: ['lines', 'markers', 'text'],
-        dflt: 'markers',
-        extras: ['none'],
-        role: 'info',
-        description: [
-            'Determines the drawing mode for this scatter trace.',
-            'If the provided `mode` includes *text* then the `text` elements',
-            'appear at the coordinates. Otherwise, the `text` elements',
-            'appear on hover.'
-        ].join(' ')
-    },
-
-    text: extendFlat({}, scatterAttrs.text, {
-        description: [
-            'Sets text elements associated with each (lon,lat) pair',
-            'If a single string, the same string appears over',
-            'all the data points.',
-            'If an array of string, the items are mapped in order to the',
-            'this trace\'s (lon,lat) coordinates.'
-        ].join(' ')
-    }),
-
-    line: {
-        color: lineAttrs.color,
-        width: lineAttrs.width,
-
-        // TODO
-        dash: lineAttrs.dash
-    },
-
-    connectgaps: scatterAttrs.connectgaps,
-
-    marker: {
-        symbol: {
-            valType: 'string',
-            dflt: 'circle',
-            role: 'style',
-            arrayOk: true,
+        mode: extendFlat({}, scatterAttrs.mode, {
+            dflt: 'markers',
             description: [
-                'Sets the marker symbol.',
-                'Full list: https://www.mapbox.com/maki-icons/',
-                'Note that the array `marker.color` and `marker.size`',
-                'are only available for *circle* symbols.'
+                'Determines the drawing mode for this scatter trace.',
+                'If the provided `mode` includes *text* then the `text` elements',
+                'appear at the coordinates. Otherwise, the `text` elements',
+                'appear on hover.'
+            ].join(' ')
+        }),
+
+        text: extendFlat({}, scatterAttrs.text, {
+            description: [
+                'Sets text elements associated with each (lon,lat) pair',
+                'If a single string, the same string appears over',
+                'all the data points.',
+                'If an array of string, the items are mapped in order to the',
+                "this trace's (lon,lat) coordinates.",
+                'If trace `hoverinfo` contains a *text* flag and *hovertext* is not set,',
+                'these elements will be seen in the hover labels.'
+            ].join(' ')
+        }),
+        texttemplate: texttemplateAttrs({ editType: 'plot' }, { keys: ['lat', 'lon', 'text'] }),
+        texttemplatefallback: templatefallbackAttrs({ editType: 'plot' }),
+        hovertext: extendFlat({}, scatterAttrs.hovertext, {
+            description: [
+                'Sets hover text elements associated with each (lon,lat) pair',
+                'If a single string, the same string appears over',
+                'all the data points.',
+                'If an array of string, the items are mapped in order to the',
+                "this trace's (lon,lat) coordinates.",
+                'To be seen, trace `hoverinfo` must contain a *text* flag.'
+            ].join(' ')
+        }),
+
+        line: {
+            color: lineAttrs.color,
+            width: lineAttrs.width
+
+            // TODO
+            // dash: dash
+        },
+
+        connectgaps: scatterAttrs.connectgaps,
+
+        marker: extendFlat(
+            {
+                symbol: {
+                    valType: 'string',
+                    dflt: 'circle',
+                    arrayOk: true,
+                    description: [
+                        'Sets the marker symbol.',
+                        'Full list: https://www.mapbox.com/maki-icons/',
+                        'Note that the array `marker.color` and `marker.size`',
+                        'are only available for *circle* symbols.'
+                    ].join(' ')
+                },
+                angle: {
+                    valType: 'number',
+                    dflt: 'auto',
+                    arrayOk: true,
+                    description: [
+                        'Sets the marker orientation from true North, in degrees clockwise.',
+                        'When using the *auto* default, no rotation would be applied',
+                        'in perspective views which is different from using a zero angle.'
+                    ].join(' ')
+                },
+                allowoverlap: {
+                    valType: 'boolean',
+                    dflt: false,
+                    description: ['Flag to draw all symbols, even if they overlap.'].join(' ')
+                },
+                opacity: markerAttrs.opacity,
+                size: markerAttrs.size,
+                sizeref: markerAttrs.sizeref,
+                sizemin: markerAttrs.sizemin,
+                sizemode: markerAttrs.sizemode
+            },
+            colorScaleAttrs('marker')
+            // line
+        ),
+
+        fill: scatterGeoAttrs.fill,
+        fillcolor: makeFillcolorAttr(),
+
+        textfont: mapboxAttrs.layers.symbol.textfont,
+        textposition: mapboxAttrs.layers.symbol.textposition,
+
+        below: {
+            valType: 'string',
+            description: [
+                "Determines if this scattermapbox trace's layers are to be inserted",
+                'before the layer with the specified ID.',
+                'By default, scattermapbox layers are inserted',
+                'above all the base layers.',
+                "To place the scattermapbox layers above every other layer, set `below` to *''*."
             ].join(' ')
         },
-        opacity: extendFlat({}, markerAttrs.opacity, {
-            arrayOk: false
+
+        selected: {
+            marker: scatterAttrs.selected.marker
+        },
+        unselected: {
+            marker: scatterAttrs.unselected.marker
+        },
+
+        hoverinfo: extendFlat({}, baseAttrs.hoverinfo, {
+            flags: ['lon', 'lat', 'text', 'name']
         }),
-        size: markerAttrs.size,
-        sizeref: markerAttrs.sizeref,
-        sizemin: markerAttrs.sizemin,
-        sizemode: markerAttrs.sizemode,
-        color: markerAttrs.color,
-        colorscale: markerAttrs.colorscale,
-        cauto: markerAttrs.cauto,
-        cmax: markerAttrs.cmax,
-        cmin: markerAttrs.cmin,
-        autocolorscale: markerAttrs.autocolorscale,
-        reversescale: markerAttrs.reversescale,
-        showscale: markerAttrs.showscale
-
-        // line
+        hovertemplate: hovertemplateAttrs(),
+        hovertemplatefallback: templatefallbackAttrs()
     },
-
-    fill: {
-        valType: 'enumerated',
-        values: ['none', 'toself'],
-        dflt: 'none',
-        role: 'style',
-        description: [
-            'Sets the area to fill with a solid color.',
-            'Use with `fillcolor` if not *none*.',
-            '*toself* connects the endpoints of the trace (or each segment',
-            'of the trace if it has gaps) into a closed shape.'
-        ].join(' ')
-    },
-    fillcolor: scatterAttrs.fillcolor,
-
-    textfont: mapboxAttrs.layers.symbol.textfont,
-    textposition: mapboxAttrs.layers.symbol.textposition,
-
-    hoverinfo: extendFlat({}, plotAttrs.hoverinfo, {
-        flags: ['lon', 'lat', 'text', 'name']
-    }),
-
-    _nestedModules: {
-        'marker.colorbar': 'Colorbar'
-    }
-};
+    'calc',
+    'nested'
+);

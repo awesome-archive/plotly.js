@@ -1,111 +1,233 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
 'use strict';
 
 var isNumeric = require('fast-isnumeric');
 
-var Plotly = require('../plotly');
+var plotApi = require('./plot_api');
+var plots = require('../plots/plots');
 var Lib = require('../lib');
 
+var helpers = require('../snapshot/helpers');
+var toSVG = require('../snapshot/tosvg');
+var svgToImg = require('../snapshot/svgtoimg');
+var version = require('../version').version;
 
-/**
- * @param {object} gd figure Object
- * @param {object} opts option object
- * @param opts.format 'jpeg' | 'png' | 'webp' | 'svg'
- * @param opts.width width of snapshot in px
- * @param opts.height height of snapshot in px
+var attrs = {
+    format: {
+        valType: 'enumerated',
+        values: ['png', 'jpeg', 'webp', 'svg', 'full-json'],
+        dflt: 'png',
+        description: 'Sets the format of exported image.'
+    },
+    width: {
+        valType: 'number',
+        min: 1,
+        description: [
+            'Sets the exported image width.',
+            'Defaults to the value found in `layout.width`',
+            'If set to *null*, the exported image width will match the current graph width.'
+        ].join(' ')
+    },
+    height: {
+        valType: 'number',
+        min: 1,
+        description: [
+            'Sets the exported image height.',
+            'Defaults to the value found in `layout.height`',
+            'If set to *null*, the exported image height will match the current graph height.'
+        ].join(' ')
+    },
+    scale: {
+        valType: 'number',
+        min: 0,
+        dflt: 1,
+        description: [
+            'Sets a scaling for the generated image.',
+            'If set, all features of a graphs (e.g. text, line width)',
+            'are scaled, unlike simply setting',
+            'a bigger *width* and *height*.'
+        ].join(' ')
+    },
+    setBackground: {
+        valType: 'any',
+        dflt: false,
+        description: [
+            'Sets the image background mode.',
+            'By default, the image background is determined by `layout.paper_bgcolor`,',
+            'the *transparent* mode.',
+            'One might consider setting `setBackground` to *opaque*',
+            'when exporting a *jpeg* image as JPEGs do not support opacity.'
+        ].join(' ')
+    },
+    imageDataOnly: {
+        valType: 'boolean',
+        dflt: false,
+        description: [
+            'Determines whether or not the return value is prefixed by',
+            'the image format\'s corresponding \'data:image;\' spec.'
+        ].join(' ')
+    }
+};
+
+/** Plotly.toImage
+ *
+ * @param {object | string | HTML div} gd
+ *   can either be a data/layout/config object
+ *   or an existing graph <div>
+ *   or an id to an existing graph <div>
+ * @param {object} opts (see above)
+ * @return {promise}
  */
 function toImage(gd, opts) {
-    var Snapshot = require('../snapshot');
+    opts = opts || {};
 
-    var promise = new Promise(function(resolve, reject) {
-        // check for undefined opts
-        opts = opts || {};
-        // default to png
-        opts.format = opts.format || 'png';
+    var data;
+    var layout;
+    var config;
+    var fullLayout;
 
-        var isSizeGood = function(size) {
-            // undefined and null are valid options
-            if(size === undefined || size === null) {
-                return true;
-            }
+    if(Lib.isPlainObject(gd)) {
+        data = gd.data || [];
+        layout = gd.layout || {};
+        config = gd.config || {};
+        fullLayout = {};
+    } else {
+        gd = Lib.getGraphDiv(gd);
+        data = Lib.extendDeep([], gd.data);
+        layout = Lib.extendDeep({}, gd.layout);
+        config = gd._context;
+        fullLayout = gd._fullLayout || {};
+    }
 
-            if(isNumeric(size) && size > 1) {
-                return true;
-            }
+    function isImpliedOrValid(attr) {
+        return !(attr in opts) || Lib.validate(opts[attr], attrs[attr]);
+    }
 
-            return false;
-        };
+    if((!isImpliedOrValid('width') && opts.width !== null) ||
+        (!isImpliedOrValid('height') && opts.height !== null)) {
+        throw new Error('Height and width should be pixel values.');
+    }
 
-        if(!isSizeGood(opts.width) || !isSizeGood(opts.height)) {
-            reject(new Error('Height and width should be pixel values.'));
-        }
+    if(!isImpliedOrValid('format')) {
+        throw new Error('Export format is not ' + Lib.join2(attrs.format.values, ', ', ' or ') + '.');
+    }
 
-        // first clone the GD so we can operate in a clean environment
-        var clone = Snapshot.clone(gd, {format: 'png', height: opts.height, width: opts.width});
-        var clonedGd = clone.td;
+    var fullOpts = {};
 
-        // put the cloned div somewhere off screen before attaching to DOM
-        clonedGd.style.position = 'absolute';
-        clonedGd.style.left = '-5000px';
-        document.body.appendChild(clonedGd);
+    function coerce(attr, dflt) {
+        return Lib.coerce(opts, fullOpts, attrs, attr, dflt);
+    }
 
-        function wait() {
-            var delay = Snapshot.getDelay(clonedGd._fullLayout);
+    var format = coerce('format');
+    var width = coerce('width');
+    var height = coerce('height');
+    var scale = coerce('scale');
+    var setBackground = coerce('setBackground');
+    var imageDataOnly = coerce('imageDataOnly');
 
-            return new Promise(function(resolve, reject) {
-                setTimeout(function() {
-                    var svg = Snapshot.toSVG(clonedGd);
+    // put the cloned div somewhere off screen before attaching to DOM
+    var clonedGd = document.createElement('div');
+    clonedGd.style.position = 'absolute';
+    clonedGd.style.left = '-5000px';
+    document.body.appendChild(clonedGd);
 
-                    var canvas = document.createElement('canvas');
-                    canvas.id = Lib.randstr();
+    // extend layout with image options
+    var layoutImage = Lib.extendFlat({}, layout);
+    if(width) {
+        layoutImage.width = width;
+    } else if(opts.width === null && isNumeric(fullLayout.width)) {
+        layoutImage.width = fullLayout.width;
+    }
+    if(height) {
+        layoutImage.height = height;
+    } else if(opts.height === null && isNumeric(fullLayout.height)) {
+        layoutImage.height = fullLayout.height;
+    }
 
-                    Snapshot.svgToImg({
-                        format: opts.format,
-                        width: clonedGd._fullLayout.width,
-                        height: clonedGd._fullLayout.height,
-                        canvas: canvas,
-                        svg: svg,
-                        // ask svgToImg to return a Promise
-                        //  rather than EventEmitter
-                        //  leave EventEmitter for backward
-                        //  compatibility
-                        promise: true
-                    }).then(function(url) {
-                        if(clonedGd) document.body.removeChild(clonedGd);
-                        resolve(url);
-                    }).catch(function(err) {
-                        reject(err);
-                    });
-
-                }, delay);
-            });
-        }
-
-        var redrawFunc = Snapshot.getRedrawFunc(clonedGd);
-
-        Plotly.plot(clonedGd, clone.data, clone.layout, clone.config)
-            // TODO: the following is Plotly.Plots.redrawText but without the waiting.
-            // we shouldn't need to do this, but in *occasional* cases we do. Figure
-            // out why and take it out.
-
-            // not sure the above TODO makes sense anymore since
-            //   we have converted to promises
-            .then(redrawFunc)
-            .then(wait)
-            .then(function(url) { resolve(url); })
-            .catch(function(err) {
-                reject(err);
-            });
+    // extend config for static plot
+    var configImage = Lib.extendFlat({}, config, {
+        _exportedPlot: true,
+        staticPlot: true,
+        setBackground: setBackground
     });
 
-    return promise;
+    var redrawFunc = helpers.getRedrawFunc(clonedGd);
+
+    function wait() {
+        return new Promise(function(resolve) {
+            setTimeout(resolve, helpers.getDelay(clonedGd._fullLayout));
+        });
+    }
+
+    function convert() {
+        return new Promise(function(resolve, reject) {
+            var svg = toSVG(clonedGd, format, scale);
+            var width = clonedGd._fullLayout.width;
+            var height = clonedGd._fullLayout.height;
+
+            function cleanup() {
+                plotApi.purge(clonedGd);
+                document.body.removeChild(clonedGd);
+            }
+
+            if(format === 'full-json') {
+                var json = plots.graphJson(clonedGd, false, 'keepdata', 'object', true, true);
+                json.version = version;
+                json = JSON.stringify(json);
+                cleanup();
+                if(imageDataOnly) {
+                    return resolve(json);
+                } else {
+                    return resolve(helpers.encodeJSON(json));
+                }
+            }
+
+            cleanup();
+
+            if(format === 'svg') {
+                if(imageDataOnly) {
+                    return resolve(svg);
+                } else {
+                    return resolve(helpers.encodeSVG(svg));
+                }
+            }
+
+            var canvas = document.createElement('canvas');
+            canvas.id = Lib.randstr();
+
+            svgToImg({
+                format: format,
+                width: width,
+                height: height,
+                scale: scale,
+                canvas: canvas,
+                svg: svg,
+                // ask svgToImg to return a Promise
+                //  rather than EventEmitter
+                //  leave EventEmitter for backward
+                //  compatibility
+                promise: true
+            })
+            .then(resolve)
+            .catch(reject);
+        });
+    }
+
+    function urlToImageData(url) {
+        if(imageDataOnly) {
+            return url.replace(helpers.IMAGE_URL_PREFIX, '');
+        } else {
+            return url;
+        }
+    }
+
+    return new Promise(function(resolve, reject) {
+        plotApi.newPlot(clonedGd, data, layoutImage, configImage)
+            .then(redrawFunc)
+            .then(wait)
+            .then(convert)
+            .then(function(url) { resolve(urlToImageData(url)); })
+            .catch(function(err) { reject(err); });
+    });
 }
 
 module.exports = toImage;

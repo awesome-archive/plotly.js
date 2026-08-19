@@ -1,23 +1,37 @@
+var probeSync = require('probe-image-size/sync');
+var PNG = require('pngjs').PNG;
 var fs = require('fs');
 
 var getMockList = require('./assets/get_mock_list');
-var getRequestOpts = require('./assets/get_image_request_options');
 var getImagePaths = require('./assets/get_image_paths');
 
-// packages inside the image server docker
-var request = require('request');
-var test = require('tape');
-
 // image formats to test
+//
 // N.B. 'png' is tested in `npm run test-image, no need to duplicate here
-// TODO figure why 'jpeg' and 'webp' lead to errors
-var FORMATS = ['svg', 'pdf', 'eps'];
+var FORMATS = ['svg', 'jpg', 'jpeg', 'webp', 'pdf'];
+
+var ONLY_FILE_SIZE = ['eps', 'pdf'];
+
+// minimum satisfactory file size [in bytes]
+var MIN_SIZE = 100;
 
 // non-exhaustive list of mocks to test
-var DEFAULT_LIST = ['0', 'geo_first', 'gl3d_z-range', 'text_export'];
-
-// minimum satisfactory file size
-var MIN_SIZE = 100;
+var DEFAULT_LIST = [
+    'plot_types',
+    'annotations',
+    'shapes',
+    'range_slider',
+    'contour_legend-colorscale',
+    'layout_image',
+    'image_astronaut_source',
+    'gl2d_no-clustering2',
+    'gl3d_surface-heatmap-treemap_transparent-colorscale',
+    'map_density-multiple_legend',
+    'smith_modes',
+    'zsmooth_methods',
+    'fonts',
+    'mathjax'
+];
 
 /**
  *  Image export test script.
@@ -30,7 +44,7 @@ var MIN_SIZE = 100;
  *
  *  Examples:
  *
- *  Run the export test on the default mock list (in batch):
+ *  Run the export test on the default mock list:
  *
  *      npm run test-image
  *
@@ -38,7 +52,7 @@ var MIN_SIZE = 100;
  *
  *      npm run test-image -- contour_nolines
  *
- *  Run the export test on all gl3d mocks (in batch):
+ *  Run the export test on all gl3d mocks:
  *
  *      npm run test-image -- gl3d_*
  */
@@ -47,43 +61,48 @@ var pattern = process.argv[2];
 var mockList = pattern ? getMockList(pattern) : DEFAULT_LIST;
 
 if(mockList.length === 0) {
-    throw new Error('No mocks found with pattern ' + pattern);
+    throw 'No mocks found with pattern ' + pattern;
 }
 
-// main
-runInBatch(mockList);
+var failed = 0;
+for(var i = 0; i < mockList.length; i++) {
+    for(var j = 0; j < FORMATS.length; j++) {
+        var mockName = mockList[i];
+        var format = FORMATS[j];
+        var base = getImagePaths(mockName).baseline;
+        var test = getImagePaths(mockName, format).test;
+        console.log('testing sizes of' + mockName + '.' + format);
 
-function runInBatch(mockList) {
-    test('testing image export formats', function(t) {
-        t.plan(mockList.length * FORMATS.length);
+        var fileSize = fs.statSync(test).size;
+        if(!(fileSize >= MIN_SIZE)) {
+            console.error('invalid file size: ' + fileSize);
+            failed++;
+        }
 
-        // send all requests out at once
-        mockList.forEach(function(mockName) {
-            FORMATS.forEach(function(format) {
-                testExport(mockName, format, t);
-            });
-        });
-    });
-}
+        if(ONLY_FILE_SIZE.indexOf(format) === -1) {
+            var img0 = PNG.sync.read(fs.readFileSync(base));
+            var img1 = probeSync(fs.readFileSync(test));
+            var s0, s1, key;
 
-// The tests below determine whether the images are properly
-// exported by (only) checking the file size of the generated images.
-function testExport(mockName, format, t) {
-    var requestOpts = getRequestOpts({ mockName: mockName, format: format }),
-        imagePaths = getImagePaths(mockName, format),
-        saveImageStream = fs.createWriteStream(imagePaths.test);
+            key = 'width';
+            s0 = img0[key];
+            s1 = img1[key];
+            if(s0 !== s1) {
+                console.error(key + 's do not match: ' + s0 + ' vs ' + s1);
+                failed++;
+            }
 
-    function checkExport(err) {
-        if(err) throw err;
-
-        fs.stat(imagePaths.test, function(err, stats) {
-            var didExport = stats.size > MIN_SIZE;
-
-            t.ok(didExport, mockName + ' should be properly exported as a ' + format);
-        });
+            key = 'height';
+            s0 = img0[key];
+            s1 = img1[key];
+            if(s0 !== s1) {
+                console.error(key + 's do not match: ' + s0 + ' vs ' + s1);
+                failed++;
+            }
+        }
     }
+}
 
-    request(requestOpts)
-        .pipe(saveImageStream)
-        .on('close', checkExport);
+if(failed) {
+    throw 'Problem during export.';
 }

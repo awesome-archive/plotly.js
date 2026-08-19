@@ -1,47 +1,39 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
 'use strict';
 
+var Lib = require('../../../lib');
 var Color = require('../../../components/color');
+var Registry = require('../../../registry');
 
 var handleSubplotDefaults = require('../../subplot_defaults');
-var layoutAttributes = require('./layout_attributes');
 var supplyGl3dAxisLayoutDefaults = require('./axis_defaults');
+var layoutAttributes = require('./layout_attributes');
+var getSubplotData = require('../../get_data').getSubplotData;
 
+var GL3D = 'gl3d';
 
 module.exports = function supplyLayoutDefaults(layoutIn, layoutOut, fullData) {
-    var hasNon3D = (
-        layoutOut._has('cartesian') ||
-        layoutOut._has('geo') ||
-        layoutOut._has('gl2d') ||
-        layoutOut._has('pie') ||
-        layoutOut._has('ternary')
-    );
+    var hasNon3D = layoutOut._basePlotModules.length > 1;
 
     // some layout-wide attribute are used in all scenes
     // if 3D is the only visible plot type
     function getDfltFromLayout(attr) {
         if(hasNon3D) return;
 
-        var isValid = layoutAttributes[attr].values.indexOf(layoutIn[attr]) !== -1;
+        var isValid = Lib.validate(layoutIn[attr], layoutAttributes[attr]);
         if(isValid) return layoutIn[attr];
     }
 
     handleSubplotDefaults(layoutIn, layoutOut, fullData, {
-        type: 'gl3d',
+        type: GL3D,
         attributes: layoutAttributes,
         handleDefaults: handleGl3dDefaults,
+        fullLayout: layoutOut,
         font: layoutOut.font,
         fullData: fullData,
         getDfltFromLayout: getDfltFromLayout,
-        paper_bgcolor: layoutOut.paper_bgcolor
+        autotypenumbersDflt: layoutOut.autotypenumbers,
+        paper_bgcolor: layoutOut.paper_bgcolor,
+        calendar: layoutOut.calendar
     });
 };
 
@@ -58,16 +50,18 @@ function handleGl3dDefaults(sceneLayoutIn, sceneLayoutOut, coerce, opts) {
      * attributes like aspectratio can be written back dynamically.
      */
 
-    var bgcolor = coerce('bgcolor'),
-        bgColorCombined = Color.combine(bgcolor, opts.paper_bgcolor);
+    var bgcolor = coerce('bgcolor');
+    var bgColorCombined = Color.combine(bgcolor, opts.paper_bgcolor);
 
-    var cameraKeys = Object.keys(layoutAttributes.camera);
+    var cameraKeys = ['up', 'center', 'eye'];
 
     for(var j = 0; j < cameraKeys.length; j++) {
         coerce('camera.' + cameraKeys[j] + '.x');
         coerce('camera.' + cameraKeys[j] + '.y');
         coerce('camera.' + cameraKeys[j] + '.z');
     }
+
+    coerce('camera.projection.type');
 
     /*
      * coerce to positive number (min 0) but also do not accept 0 (>0 not >=0)
@@ -91,15 +85,55 @@ function handleGl3dDefaults(sceneLayoutIn, sceneLayoutOut, coerce, opts) {
         sceneLayoutIn.aspectratio = sceneLayoutOut.aspectratio = {x: 1, y: 1, z: 1};
 
         if(aspectMode === 'manual') sceneLayoutOut.aspectmode = 'auto';
+
+        /*
+         * kind of like autorange - we need the calculated aspectmode back in
+         * the input layout or relayout can cause problems later
+         */
+        sceneLayoutIn.aspectmode = sceneLayoutOut.aspectmode;
     }
+
+    var fullGl3dData = getSubplotData(opts.fullData, GL3D, opts.id);
 
     supplyGl3dAxisLayoutDefaults(sceneLayoutIn, sceneLayoutOut, {
         font: opts.font,
         scene: opts.id,
-        data: opts.fullData,
-        bgColor: bgColorCombined
+        data: fullGl3dData,
+        bgColor: bgColorCombined,
+        calendar: opts.calendar,
+        autotypenumbersDflt: opts.autotypenumbersDflt,
+        fullLayout: opts.fullLayout
     });
 
-    coerce('dragmode', opts.getDfltFromLayout('dragmode'));
+    Registry.getComponentMethod('annotations3d', 'handleDefaults')(
+        sceneLayoutIn, sceneLayoutOut, opts
+    );
+
+    var dragmode = opts.getDfltFromLayout('dragmode');
+
+    if(dragmode !== false) {
+        if(!dragmode) {
+            dragmode = 'orbit';
+
+            if(sceneLayoutIn.camera &&
+                sceneLayoutIn.camera.up) {
+                var x = sceneLayoutIn.camera.up.x;
+                var y = sceneLayoutIn.camera.up.y;
+                var z = sceneLayoutIn.camera.up.z;
+
+                if(z !== 0) {
+                    if(!x || !y || !z) {
+                        dragmode = 'turntable';
+                    } else if(z / Math.sqrt(x * x + y * y + z * z) > 0.999) {
+                        dragmode = 'turntable';
+                    }
+                }
+            } else {
+                dragmode = 'turntable';
+            }
+        }
+    }
+
+    coerce('dragmode', dragmode);
     coerce('hovermode', opts.getDfltFromLayout('hovermode'));
 }

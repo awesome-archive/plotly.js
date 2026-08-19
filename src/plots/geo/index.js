@@ -1,104 +1,90 @@
-/**
-* Copyright 2012-2016, Plotly, Inc.
-* All rights reserved.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-
-
 'use strict';
 
-var Geo = require('./geo');
+var getSubplotCalcData = require('../../plots/get_data').getSubplotCalcData;
+var counterRegex = require('../../lib').counterRegex;
 
-var Plots = require('../../plots/plots');
+var createGeo = require('./geo');
 
+var GEO = 'geo';
+var counter = counterRegex(GEO);
 
-exports.name = 'geo';
-
-exports.attr = 'geo';
-
-exports.idRoot = 'geo';
-
-exports.idRegex = /^geo([2-9]|[1-9][0-9]+)?$/;
-
-exports.attrRegex = /^geo([2-9]|[1-9][0-9]+)?$/;
-
-exports.attributes = require('./layout/attributes');
-
-exports.layoutAttributes = require('./layout/layout_attributes');
-
-exports.supplyLayoutDefaults = require('./layout/defaults');
-
-exports.plot = function plotGeo(gd) {
-    var fullLayout = gd._fullLayout,
-        fullData = gd._fullData,
-        geoIds = Plots.getSubplotIds(fullLayout, 'geo');
-
-    /**
-     * If 'plotly-geo-assets.js' is not included,
-     * initialize object to keep reference to every loaded topojson
-     */
-    if(window.PlotlyGeoAssets === undefined) {
-        window.PlotlyGeoAssets = { topojson: {} };
-    }
-
-    for(var i = 0; i < geoIds.length; i++) {
-        var geoId = geoIds[i],
-            fullGeoData = Plots.getSubplotData(fullData, 'geo', geoId),
-            geo = fullLayout[geoId]._geo;
-
-        // If geo is not instantiated, create one!
-        if(geo === undefined) {
-            geo = new Geo({
-                id: geoId,
-                graphDiv: gd,
-                container: fullLayout._geocontainer.node(),
-                topojsonURL: gd._context.topojsonURL
-            },
-                fullLayout
-            );
-
-            fullLayout[geoId]._geo = geo;
-        }
-
-        geo.plot(fullGeoData, fullLayout, gd._promises);
-    }
+var attributes = {};
+attributes[GEO] = {
+    valType: 'subplotid',
+    dflt: GEO,
+    editType: 'calc',
+    description: [
+        'Sets a reference between this trace\'s geospatial coordinates and',
+        'a geographic map.',
+        'If *geo* (the default value), the geospatial coordinates refer to',
+        '`layout.geo`.',
+        'If *geo2*, the geospatial coordinates refer to `layout.geo2`,',
+        'and so on.'
+    ].join(' ')
 };
 
-exports.clean = function(newFullData, newFullLayout, oldFullData, oldFullLayout) {
-    var oldGeoKeys = Plots.getSubplotIds(oldFullLayout, 'geo');
+function plotGeo(gd) {
+    var fullLayout = gd._fullLayout;
+    var calcData = gd.calcdata;
+    var geoIds = fullLayout._subplots[GEO];
+
+    for(var i = 0; i < geoIds.length; i++) {
+        var geoId = geoIds[i];
+        var geoCalcData = getSubplotCalcData(calcData, GEO, geoId);
+        var geoLayout = fullLayout[geoId];
+        var geo = geoLayout._subplot;
+
+        if(!geo) {
+            geo = createGeo({
+                id: geoId,
+                graphDiv: gd,
+                container: fullLayout._geolayer.node(),
+                topojsonURL: gd._context.topojsonURL,
+                staticPlot: gd._context.staticPlot
+            });
+
+            fullLayout[geoId]._subplot = geo;
+        }
+
+        geo.plot(geoCalcData, fullLayout, gd._promises);
+    }
+}
+
+function clean(newFullData, newFullLayout, oldFullData, oldFullLayout) {
+    var oldGeoKeys = oldFullLayout._subplots[GEO] || [];
 
     for(var i = 0; i < oldGeoKeys.length; i++) {
         var oldGeoKey = oldGeoKeys[i];
-        var oldGeo = oldFullLayout[oldGeoKey]._geo;
+        var oldGeo = oldFullLayout[oldGeoKey]._subplot;
 
         if(!newFullLayout[oldGeoKey] && !!oldGeo) {
-            oldGeo.geoDiv.remove();
+            oldGeo.framework.remove();
+            oldGeo.clipDef.remove();
         }
     }
-};
+}
 
-exports.toSVG = function(gd) {
-    var fullLayout = gd._fullLayout,
-        geoIds = Plots.getSubplotIds(fullLayout, 'geo'),
-        size = fullLayout._size;
+function updateFx(gd) {
+    var fullLayout = gd._fullLayout;
+    var subplotIds = fullLayout._subplots[GEO];
 
-    for(var i = 0; i < geoIds.length; i++) {
-        var geoLayout = fullLayout[geoIds[i]],
-            domain = geoLayout.domain,
-            geoFramework = geoLayout._geo.framework;
-
-        geoFramework.attr('style', null);
-        geoFramework
-            .attr({
-                x: size.l + size.w * domain.x[0] + geoLayout._marginX,
-                y: size.t + size.h * (1 - domain.y[1]) + geoLayout._marginY,
-                width: geoLayout._width,
-                height: geoLayout._height
-            });
-
-        fullLayout._geoimages.node()
-            .appendChild(geoFramework.node());
+    for(var i = 0; i < subplotIds.length; i++) {
+        var subplotLayout = fullLayout[subplotIds[i]];
+        var subplotObj = subplotLayout._subplot;
+        subplotObj.updateFx(fullLayout, subplotLayout);
     }
+}
+
+module.exports = {
+    attr: GEO,
+    name: GEO,
+    idRoot: GEO,
+    idRegex: counter,
+    attrRegex: counter,
+    attributes: attributes,
+    layoutAttributes: require('./layout_attributes'),
+    supplyLayoutDefaults: require('./layout_defaults'),
+    plot: plotGeo,
+    updateFx: updateFx,
+    clean: clean
 };

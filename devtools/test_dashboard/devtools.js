@@ -2,13 +2,12 @@
 
 /* global Plotly:false */
 
-var Fuse = require('fuse.js');
+var Fuse = require('fuse.js/dist/fuse.common.js');
 var mocks = require('../../build/test_dashboard_mocks.json');
 var credentials = require('../../build/credentials.json');
-var Lib = require('@src/lib');
+var Lib = require('../../src/lib');
 
-// put d3 in window scope
-var d3 = window.d3 = Plotly.d3;
+require('./perf');
 
 // Our gracious testing object
 var Tabs = {
@@ -18,8 +17,7 @@ var Tabs = {
         Plotly.setPlotConfig({
 
             // use local topojson files
-            topojsonURL: '../../dist/topojson/',
-
+            topojsonURL: "../../topojson/dist",
             // register mapbox access token
             // run `npm run preset` if you haven't yet
             mapboxAccessToken: credentials.MAPBOX_ACCESS_TOKEN,
@@ -59,26 +57,26 @@ var Tabs = {
     plotMock: function(mockName, id) {
         var mockURL = '/test/image/mocks/' + mockName + '.json';
 
-        d3.json(mockURL, function(err, fig) {
-            Plotly.plot(Tabs.fresh(id), fig.data, fig.layout);
+        console.warn('Plotting:', mockURL);
 
-            console.warn('Plotting:', mockURL);
-        });
-    },
+        var request = new XMLHttpRequest();
+        request.open('GET', mockURL, true);
+        request.responseType = '';
+        request.send();
 
-    getMock: function(mockName, callback) {
-        var mockURL = '/test/image/mocks/' + mockName + '.json';
-
-        d3.json(mockURL, function(err, fig) {
-            if(typeof callback !== 'function') {
-                window.mock = fig;
-            } else {
-                callback(err, fig);
+        request.onreadystatechange = function() {
+            if(this.readyState === 4) {
+                if(this.status === 200) {
+                    var fig = JSON.parse(this.responseText);
+                    Plotly.newPlot(Tabs.fresh(id), fig);
+                } else {
+                    console.error(this.statusText);
+                }
             }
-        });
+        };
     },
 
-    // Save a png snapshot and display it below the plot
+    // Save a PNG snapshot and display it below the plot
     snapshot: function(id) {
         var gd = Tabs.getGraph(id);
 
@@ -140,7 +138,7 @@ var Tabs = {
         var interval = setInterval(function() {
             if(window.Plotly) {
                 clearInterval(interval);
-                Tabs.setPlotConfig();
+                handleOnLoad();
                 Tabs.onReload();
             }
         }, 100);
@@ -151,17 +149,25 @@ var Tabs = {
 // Bind things to the window
 window.Tabs = Tabs;
 window.Lib = Lib;
+window.onload = handleOnLoad;
 setInterval(function() {
     window.gd = Tabs.getGraph() || Tabs.fresh();
     window.fullLayout = window.gd._fullLayout;
     window.fullData = window.gd._fullData;
 }, 1000);
 
-// Set plot config on first load
-Tabs.setPlotConfig();
-
 // Mocks search and plotting
-var f = new Fuse(mocks, {
+var fuse = new Fuse(mocks, {
+    // isCaseSensitive: false,
+    // includeScore: false,
+    // shouldSort: true,
+    // includeMatches: false,
+    // findAllMatches: false,
+    // minMatchCharLength: 1,
+    // location: 0,
+    // threshold: 0.6,
+    // distance: 100,
+    // useExtendedSearch: false,
     keys: [{
         name: 'name',
         weight: 0.7
@@ -171,24 +177,22 @@ var f = new Fuse(mocks, {
     }]
 });
 
-var searchBar = document.getElementById('mocks-search');
+var transformInput = document.getElementById('css-transform');
+var mockInput = document.getElementById('mocks-search');
 var mocksList = document.getElementById('mocks-list');
 var plotArea = document.getElementById('plots');
 
-searchBar.addEventListener('keyup', debounce(searchMocks, 250));
+mockInput.addEventListener('keyup', debounce(searchMocks, 250));
 
-window.onload = function() {
-    var initialMock = window.location.hash.replace(/^#/, '');
-
-    if(initialMock.length > 0) {
-        Tabs.plotMock(initialMock);
-    }
-};
+transformInput.addEventListener('keyup', function(e) {
+    plotArea.style.transform = e.target.value;
+});
 
 function debounce(func, wait, immediate) {
     var timeout;
     return function() {
-        var context = this, args = arguments;
+        var context = this;
+        var args = arguments;
         var later = function() {
             timeout = null;
             if(!immediate) func.apply(context, args);
@@ -201,33 +205,65 @@ function debounce(func, wait, immediate) {
 }
 
 function searchMocks(e) {
-
     // Clear results.
     while(mocksList.firstChild) {
         mocksList.removeChild(mocksList.firstChild);
     }
 
-
-    var results = f.search(e.target.value);
+    var results = fuse.search(e.target.value);
 
     results.forEach(function(r) {
+        var mockName = r.item.name;
         var result = document.createElement('span');
-        result.className = 'search-result';
-        result.innerText = r.name;
+        result.className = getResultClass(mockName);
+        result.innerText = mockName;
 
         result.addEventListener('click', function() {
-            var mockName = r.file.slice(0, -5);
             window.location.hash = mockName;
 
             // Clear plots and plot selected.
             Tabs.purge();
             Tabs.plotMock(mockName);
+
+            mocksList.querySelectorAll('span').forEach(function(el) {
+                el.className = getResultClass(el.innerText);
+            });
         });
 
         mocksList.appendChild(result);
 
         var listWidth = mocksList.getBoundingClientRect().width;
         var plotAreaWidth = Math.floor(window.innerWidth - listWidth);
-        plotArea.setAttribute('style', 'width: ' + plotAreaWidth + 'px;');
+
+        var allStyles = [
+            'width: ' + plotAreaWidth + 'px;'
+        ];
+
+        if(transformInput.value !== '') {
+            allStyles.push('transform: ' + transformInput.value + ';');
+        }
+
+        plotArea.setAttribute('style', allStyles.join(' '));
     });
+}
+
+function getNameFromHash() {
+    return window.location.hash.replace(/^#/, '');
+}
+
+function getResultClass(name) {
+    return 'search-result' + (getNameFromHash() === name ? ' search-result__selected' : '');
+}
+
+function plotFromHash() {
+    var initialMock = getNameFromHash();
+
+    if(initialMock.length > 0) {
+        Tabs.plotMock(initialMock);
+    }
+}
+
+function handleOnLoad() {
+    Tabs.setPlotConfig();
+    plotFromHash();
 }

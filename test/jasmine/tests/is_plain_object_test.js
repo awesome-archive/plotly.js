@@ -1,4 +1,4 @@
-var Lib = require('@src/lib');
+var Lib = require('../../../src/lib');
 
 describe('isPlainObject', function() {
     'use strict';
@@ -9,7 +9,7 @@ describe('isPlainObject', function() {
 
     var shouldPass = [
         {},
-        {a: 'A', 'B': 'b'}
+        {a: 'A', B: 'b'}
     ];
 
     var shouldFail = [
@@ -20,6 +20,7 @@ describe('isPlainObject', function() {
         null,
         undefined,
         [],
+        new Float32Array(1),
         'string',
         true,
         false,
@@ -30,7 +31,8 @@ describe('isPlainObject', function() {
         new Array(10),
         new Date(),
         new RegExp('foo'),
-        new String('string')
+        new String('string'),
+        document.createElement('div')
     ];
 
     shouldPass.forEach(function(obj) {
